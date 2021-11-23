@@ -19,21 +19,21 @@ watson_accesses = ["scale", "latfac", "femorder", "full_nonlin", "nrefs", "strai
 watson_allowedtypes = (Real, String, Symbol, Array, DataType)
 watson_datasubdir = "bimetal_watson"
 
-function run_watson(; force::Bool = false)
+function run_watson(; dim = 2, force::Bool = false)
 
     allparams = Dict(
         "latfac" => Array{Float64,1}(0:0.02:0.2),  # lattice factor between material A and B (lc = [5,5*(1+latfac)])
         "E" => [[1e-6, 1e-6]],                     # elastic moduli of material A and B
         "ν" => [[0.15, 0.15]],                     # Poisson numbers of material A and B
-        "strainm" => [NonlinearStrain2D],          # strain model
+        "strainm" => [dim == 2 ? NonlinearStrain2D : NonlinearStrain3D],          # strain model
         "full_nonlin" => [true],                   # use complicated model (ignored if linear strain is used)
         "use_emb" => [true],                       # use embedding (true) or damping (false) solver ?
         "nsteps" => [4],                           # number of embedding steps in embedding solver
         "maxits" => [100],                         # max number of iteration in each embedding step
         "tres" => [1e-12],                         # target residual in each embedding step
-        "scale" => [[50,2000], [100, 2000]],       # dimensions of bimetal
-        "mb" => [0.25, 0.5, 0.75],                 # share of material A vs. material B
-        "femorder" => [3],                         # order of the finite element discretisation
+        "scale" => dim == 2 ? [[50,2000], [100, 2000]] : [[50,50,2000], [100,100,2000]],       # dimensions of bimetal
+        "mb" => [0.5],                             # share of material A vs. material B
+        "femorder" => [2],                         # order of the finite element discretisation
         "upscaling" => [2],                        # upscaling of results (does so many extra nrefs for plots)
         "nrefs" => [1],                            # number of uniform refinements before solve
         "avgc" => [2],                             # lattice number calculation method (average case)
@@ -149,7 +149,14 @@ function get_lattice_mismatch_bimetal(avgc, geometry, lc)
 end
 
 
-function postprocess(; scales = [[50, 2000], [100, 2000]], maxlc = [0.1, 0.2], nrefs = 1, mb = 0.75, strainm = NonlinearStrain2D, Plotter = nothing)
+function postprocess(; 
+    scales = [[50, 2000], [100, 2000]],
+    maxlc = [0.1, 0.2],
+    nrefs = 1,
+    mb = 0.5,
+    femorder = "max",
+    strainm = length(scales[1]) == 3 ? NonlinearStrain3D : NonlinearStrain2D,
+    Plotter = nothing)
 
     @assert Plotter !== nothing "need a Plotter (e.g. PyPlot)"
     Plotter.close("all")
@@ -173,6 +180,11 @@ function postprocess(; scales = [[50, 2000], [100, 2000]], maxlc = [0.1, 0.2], n
         df = filter(:mb => ==(mb), df)
         df = filter(:strainm => ==(strainm), df)
         df = filter(:latfac => <=(maxlc[j]), df)
+
+        if femorder == "max"
+            femorder = maximum(df[!,:femorder])
+        end
+        df = filter(:femorder => ==(femorder), df)
         sort!(df, [:latfac])
         @show df
 
@@ -189,7 +201,7 @@ function postprocess(; scales = [[50, 2000], [100, 2000]], maxlc = [0.1, 0.2], n
                 ## compute bending statistics (todo: check curvature formula in 3D)
             angle, curvature, dist_bend, farthest_point = compute_statistics(solution[1].FES.xgrid, solution[1], scale)
 
-            # calculate analytic curvature
+            # calculate analytic curvature (is it correct for 3D?)
             E = data[:E]
             α = data[:α]
             mb = data[:mb]

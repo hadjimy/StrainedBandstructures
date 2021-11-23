@@ -31,7 +31,7 @@ function get_displacement_operator(
 
         ## multiply strain in result with isotropic stress tensor
         ## and store in input cache (all in Voigt notation)
-        apply_stress_tensor!(input, result, STT; offset = cache_offset)
+        apply_elasticity_tensor!(input, result, STT; offset = cache_offset)
 
         ## uncompress stress in Voigt notation (input) into full matrix (result)
         uncompress_voigt!(result, input; offset = cache_offset)
@@ -174,7 +174,7 @@ function get_energy_integrator(
 
         ## multiply with isotropic stress tensor
         fill!(temp2,0)
-        apply_stress_tensor!(temp2, temp, STT[region])
+        apply_elasticity_tensor!(temp2, temp, STT[region])
 
         ## compute energy
         result[1] = 0

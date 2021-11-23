@@ -20,7 +20,7 @@ include("tensors.jl")
 export ElasticityTensorType, PiezoElectricityTensorType
 export IsotropicElasticityTensor
 export CustomMatrixElasticityTensor, CustomMatrixPiezoElectricityTensor
-export apply_stress_tensor!, apply_piezoelectricity_tensor!
+export apply_elasticity_tensor!, apply_piezoelectricity_tensor!
 
 include("materials.jl")
 export MaterialType

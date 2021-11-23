@@ -11,14 +11,14 @@ end
 #       or we could even make subtypes with apply functions for them to skip the zeros in their evaluation
 
 
-@inline function apply_stress_tensor!(result, input, ST::IsotropicElasticityTensor{2,T}; offset = 0) where {T}
+@inline function apply_elasticity_tensor!(result, input, ST::IsotropicElasticityTensor{2,T}; offset = 0) where {T}
     result[offset + 1] = ST.λ * (input[1] + input[2]) + 2 * ST.μ * input[1]
     result[offset + 2] = ST.λ * (input[1] + input[2]) + 2 * ST.μ * input[2]
     result[offset + 3] = 2 * ST.μ * input[3]
     return nothing 
 end
 
-@inline function apply_stress_tensor!(result, input, ST::IsotropicElasticityTensor{3,T}; offset = 0) where {T}
+@inline function apply_elasticity_tensor!(result, input, ST::IsotropicElasticityTensor{3,T}; offset = 0) where {T}
     result[offset + 1] = ST.λ * (input[1] + input[2] + input[3]) + 2 * ST.μ * input[1]
     result[offset + 2] = ST.λ * (input[1] + input[2] + input[3]) + 2 * ST.μ * input[2]
     result[offset + 3] = ST.λ * (input[1] + input[2] + input[3]) + 2 * ST.μ * input[3]
@@ -28,7 +28,7 @@ end
     return nothing 
 end
 
-@inline function apply_stress_tensor!(result, input, ST::CustomMatrixElasticityTensor{T}; offset = 0) where {T}
+@inline function apply_elasticity_tensor!(result, input, ST::CustomMatrixElasticityTensor{T}; offset = 0) where {T}
     C::Matrix{T} = ST.C
     for k = 1 : size(C,1)
         result[offset + k] = 0
