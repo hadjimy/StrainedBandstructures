@@ -205,7 +205,7 @@ version = "0.4.1"
 
 [[GradientRobustMultiPhysics]]
 deps = ["DiffResults", "DocStringExtensions", "ExtendableGrids", "ExtendableSparse", "ForwardDiff", "GridVisualize", "LinearAlgebra", "Logging", "Printf", "SparseArrays", "StaticArrays", "SuiteSparse", "Test", "WriteVTK"]
-path = "/home/merdon/Projekte/julia/dev/GradientRobustMultiPhysics"
+git-tree-sha1 = "e478fbfa52f49b071b78000eda7ef201d2b9f973"
 uuid = "0802c0ca-1768-4022-988c-6dd5f9588a11"
 version = "0.7.9"
 
