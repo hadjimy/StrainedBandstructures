@@ -283,7 +283,7 @@ end
 
 function postprocess(filename; Plotter = nothing, cut_levels = "auto", cut_npoints = 100, vol_cut = "auto")
 
-    if typof(filename) <: Dict
+    if typeof(filename) <: Dict
         d = filename
     else
         d = wload(datadir(watson_datasubdir, filename))
