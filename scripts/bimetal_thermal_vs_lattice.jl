@@ -9,8 +9,8 @@ using GridVisualize
 
 ## this script has three main functions:
 ## - main() runs the code with a general misfit strain from whatever source
-## - main_lattice() computes a lattice misfit and runs main
 ## - main_thermal() computes a thermal misfit and runs main
+## - main_lattice() computes a lattice misfit and runs main
 ##
 ## (the model and expected curvature is the same in both cases)
 
@@ -91,9 +91,6 @@ function main(; ν = [0.3,0.3],                              # elastic numbers o
 
     ## set log level
     set_verbosity(verbosity)
-    vtk_target_file = "data/bimetal/scale$(scale)_mb$(material_border)_ν$(ν)_E$(E)_misfit$(misfit_strain)/"
-    mkpath(vtk_target_file)
-    vtk_target_file *= "nref$(nrefinements)_order$(femorder)"
     
     ## compute Lame' coefficients μ and λ from ν and E
     μ = E ./ (2  .* (1 .+ ν))
@@ -136,9 +133,6 @@ function main(; ν = [0.3,0.3],                              # elastic numbers o
     analytic_curvature = abs(24 * (misfit_strain[2] - misfit_strain[1]) / (scale[1] * (E[1]/E[2] + E[2]/E[1] + 14)))
     curvature = compute_statistics(xgrid, Solution[1], scale)
     @show analytic_curvature, curvature
-
-    ## export data to VTK
-    # writeVTK(vtk_target_file, Solution[1]; upscaling = 2, strain_model = strain_model)
 
     ## displace mesh and plot
     p = GridVisualizer(; Plotter = Plotter, layout = (2,1), clear = true, resolution = (800,600))

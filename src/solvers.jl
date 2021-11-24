@@ -29,17 +29,18 @@ function solve_by_embedding(
         @warn "all emb_params_target == 0, reducing nsteps to 1"
     end
 
+    residual::Float64 = 0
     for s = 1 : length(subiterations)
         for j = 1 : nsteps[s]
             emb_params .= nsteps[s] == 1 ? emb_params_target : (j-1)/(nsteps[s]-1) .* emb_params_target
 
             ## solve by GradientRobustMultiPhysics standard fixed-point solver
             println("Solving problem with parameter emb_params = $emb_params (embedding step $j/$(nsteps[s]))...")
-            solve!(Solution, Problem; subiterations = subiterations[s], show_statistics = true,  maxiterations = maxiterations[s], target_residual = target_residual[s])
+            residual = solve!(Solution, Problem; subiterations = subiterations[s], show_statistics = true,  maxiterations = maxiterations[s], target_residual = target_residual[s])
         end
     end
 
-    return Solution
+    return Solution, residual
 end
 
 
@@ -144,7 +145,7 @@ function solve_by_damping(
     
     ## solve
     println("Solving by damping...")
-    solve!(Solution, Problem; subiterations = subiterations, target_residual = target_residual, maxiterations = maxiterations, damping = get_damping)
+    residual = solve!(Solution, Problem; subiterations = subiterations, target_residual = target_residual, maxiterations = maxiterations, damping = get_damping)
 
-    return Solution
+    return Solution, residual
 end

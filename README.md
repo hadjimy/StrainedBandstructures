@@ -21,5 +21,4 @@ julia> Pkg.instantiate()
 
 - grid generator for nanowire in Julia (currently user must provide sg-files, one can be found in grids folder)
 - fully coupled elasticity + polarisation model (currently only forward coupling)
-- use Dr. Watson also in nanowire script, parallelize simulations
-- merge bimetal and bimetal_watson.jl?
+- parallelize simulations in run_watson

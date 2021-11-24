@@ -72,10 +72,11 @@ function makesim(d::Dict)
     fulld["α"] = α
 
     # run simulation
-    solution = main(fulld)
+    solution, residual = main(fulld)
 
     # save additional data
     fulld["solution"] = solution
+    fulld["residual"] = residual
     return fulld
 end
 
@@ -118,13 +119,13 @@ function main(d::Dict; verbosity = 0)
 
     ## solve system with FEM
     if use_emb
-        Solution = solve_by_embedding(Problem, xgrid, emb, nsteps = [nsteps], FETypes = [FEType], target_residual = [tres], maxiterations = [maxits])
+        Solution, residual = solve_by_embedding(Problem, xgrid, emb, nsteps = [nsteps], FETypes = [FEType], target_residual = [tres], maxiterations = [maxits])
     else
         energy = get_energy_integrator(stress_tensor, strainm, α; dim = dim)
-        Solution = solve_by_damping(Problem, xgrid, energy; FETypes = [FEType], target_residual = tres, maxiterations = maxits)
+        Solution, residual = solve_by_damping(Problem, xgrid, energy; FETypes = [FEType], target_residual = tres, maxiterations = maxits)
     end
 
-    return Solution
+    return Solution, residual
 end
 
 function get_lattice_mismatch_bimetal(avgc, geometry, lc)

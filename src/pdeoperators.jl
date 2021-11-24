@@ -51,7 +51,7 @@ function get_displacement_operator(
                          Gradient,                                      # operator for test function
                          nonlinear_operator_kernel!,                    # kernel function (above)
                          [dim^2, dim^2, Int(dim^2+dim*(dim+1)/2)];      # argument sizes for kernel function result and input and cache
-                         name = "(I + emb*∇u)C(ϵ(u)-ϵT) : ∇v",         # name for print-outs
+                         name = "(I + emb*∇u)C(ϵ(u)-ϵ0) : ∇v",         # name for print-outs
                          regions = regions,                             # regions where nonlinearform intergrates
                          quadorder = quadorder,                         # quadrature order
                          ADnewton = true)                               # activate Newton derivatives (false won't work here)
