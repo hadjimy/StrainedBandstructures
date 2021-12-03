@@ -2,6 +2,7 @@ module NanoWiresJulia
 
 using GradientRobustMultiPhysics
 using ExtendableGrids
+using GridVisualize
 using SimplexGridFactory
 using Triangulate
 using TetGen
@@ -44,7 +45,7 @@ export get_polarisation_operator # wip
 export get_energy_integrator
 
 include("plane_cuts.jl")
-export tet_x_plane!, plane_cut, get_cutgrids
+export tet_x_plane!, plane_cut, get_cutgrids, perform_plane_cuts
 
 include("export.jl")
 export writeVTK
