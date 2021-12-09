@@ -17,7 +17,7 @@ Triangulate = "f7e6ffb2-c36d-4f8f-a77e-16e897189344"
 
 [compat]
 ExtendableGrids = "0.8.8"
-GradientRobustMultiPhysics = "0.7.11"
+GradientRobustMultiPhysics = "0.7.12"
 GridVisualize = "0.3.9"
 SimplexGridFactory = "0.5.10"
 TetGen = "1.3"

@@ -1,11 +1,8 @@
 function bimetal_strip3D(; material_border = 0.5, scale = [1,1,1], anisotropy = [1,1,2], reflevel = 1, maxvol = prod(scale./anisotropy)/8)
 
-    scale ./= anisotropy
-
-    builder=SimplexGridBuilder(Generator=TetGen)
-
     @info "Generating bimetal grid for scale = $scale"
-
+    scale ./= anisotropy
+    builder=SimplexGridBuilder(Generator=TetGen)
     p1=point!(builder,0,0,0)                                                
     p2=point!(builder,scale[1],0,0)                                         
     p3=point!(builder,scale[1],scale[2],0)                                  
@@ -62,12 +59,9 @@ end
 
 function bimetal_strip2D(; material_border = 0.5, scale = [1,1], anisotropy = [1,1], reflevel = 1, maxvol = prod(scale./anisotropy)/4)
 
-    scale ./= anisotropy
-
-    builder=SimplexGridBuilder(Generator=Triangulate)
-
     @info "Generating 2d bimetal grid for scale = $scale"
-
+    scale ./= anisotropy
+    builder=SimplexGridBuilder(Generator=Triangulate)
     p1=point!(builder,0,0)                                                
     p2=point!(builder,scale[2],0)                                         
     p3=point!(builder,scale[2],scale[1])                                 

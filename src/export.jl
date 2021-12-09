@@ -1,7 +1,8 @@
 
 ## writes (upscaled) Displacement and (optionally) Polarisation into vtk file
 ## on unbended and bended grid
-function writeVTK(filename, Displacement::FEVectorBlock{T,Tv,Ti,FEType,APT}, Polarisation = nothing; eps_gfind = 1e-12, upscaling = 1, strain_model = NonlinearStrain2D) where {T,Tv,Ti,FEType,APT}
+function writeVTK(filename, Displacement::FEVectorBlock{T,Tv,Ti,FEType,APT}, Polarisation = nothing;
+    eps_gfind = 1e-12, upscaling = 0, P0strain::Bool = true, strain_model = NonlinearStrain2D) where {T,Tv,Ti,FEType,APT}
 
     ## get original grid
     xgrid_plot = Displacement.FES.xgrid
@@ -17,10 +18,11 @@ function writeVTK(filename, Displacement::FEVectorBlock{T,Tv,Ti,FEType,APT}, Pol
     interpolate_action = Action(interpolate_postprocess, [size_ϵu, ncomponents^2])
 
     ## upscaling (= interpolate to P1 on finer grid)
+    Solution_plot = nothing
     if upscaling > 0
         xgrid_plot = uniform_refine(xgrid_plot, upscaling; store_parents = true)
         FES = FESpace{H1P1{ncomponents}}(xgrid_plot)
-        FES_strain = FESpace{H1P1{size_ϵu}}(xgrid_plot; broken = true)
+        FES_strain = FESpace{P0strain ? H1P0{size_ϵu} : H1P1{size_ϵu}}(xgrid_plot)
         if Polarisation !== nothing
             FES_polarisation = FESpace{H1P1{1}}(xgrid_plot)
             Solution_plot = FEVector{Float64}(["u_h (upscale)", "ϵu", "V_P"],[FES, FES_strain, FES_polarisation])
@@ -31,11 +33,12 @@ function writeVTK(filename, Displacement::FEVectorBlock{T,Tv,Ti,FEType,APT}, Pol
         interpolate!(Solution_plot[1], Displacement; use_cellparents = true, eps = eps_gfind)
         interpolate!(Solution_plot[2], Displacement; operator = Gradient, postprocess = interpolate_action, use_cellparents = true, eps = eps_gfind)
     else
-        Strain = FEVector("ϵu",FESpace{H1P1{size_ϵu}}(xgrid_plot))
+        Strain = FEVector("ϵu",FESpace{P0strain ? H1P0{size_ϵu} : H1P1{size_ϵu}}(xgrid_plot))
         interpolate!(Strain[1], Displacement; operator = Gradient, postprocess = interpolate_action, eps = eps_gfind)
-        Solution_plot = [Displacement, Strain[1]]
         if Polarisation !== nothing
-            append!(Solution_plot, Polarisation)
+            Solution_plot = [Displacement, Strain[1], Polarisation]
+        else
+            Solution_plot = [Displacement, Strain[1]]
         end
     end
 

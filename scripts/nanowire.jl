@@ -39,12 +39,11 @@ function get_defaults()
         "mstruct" => ZincBlende001,             # material structure type
         "femorder" => 1,                        # order of the finite element discretisation (displacement)
         "femorder_P" => 1,                      # order of the finite element discretisation (polarisation)
-        "upscaling" => 1,                       # upscaling of results (does so many extra nrefs for plots)
         "nrefs" => 0,                           # number of uniform refinements before solve
         "avgc" => 2,                            # lattice number calculation method (average case)
         "polarisation" => true,                 # also solve for polarisation
         "fully_coupled" => false,               # parameter for later when we have the full model
-        "postprocess" => true,                  # angle calculation, vtk files, cuts
+        "postprocess" => false,                  # angle calculation, vtk files, cuts
     )
     return params
 end
@@ -213,6 +212,8 @@ function main(d = nothing; verbosity = 0, Plotter = nothing, force::Bool = false
     ###################
     if d["postprocess"]
         postprocess(filename; Plotter = Plotter)
+    else
+        @info "skipping postprocessing... start it manually with: nanowire.postprocess(\"$filename\"; Plotter = PyPlot)"
     end
 
     return resultd
@@ -281,7 +282,7 @@ function load_data(d = nothing; kwargs...)
     return d
 end
 
-function postprocess(filename; Plotter = nothing, cut_levels = "auto", cut_npoints = 100, vol_cut = "auto")
+function postprocess(filename; Plotter = nothing, cut_levels = "auto", cut_npoints = 100, vol_cut = "auto", upscaling = 0)
 
     if typeof(filename) <: Dict
         d = filename
@@ -296,7 +297,7 @@ function postprocess(filename; Plotter = nothing, cut_levels = "auto", cut_npoin
     d["curvature"] = curvature
 
     # export vtk files
-    @unpack polarisation, strainm, upscaling = d
+    @unpack polarisation, strainm = d
     filename_vtk = savename(d, ""; allowedtypes = watson_allowedtypes, accesses = watson_accesses)
     if polarisation
         writeVTK(datadir(watson_datasubdir, filename_vtk), solution[1], solution[2]; upscaling = upscaling, strain_model = strainm, eps_gfind = 1e-10)

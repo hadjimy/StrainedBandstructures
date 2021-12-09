@@ -294,19 +294,6 @@ function perform_plane_cuts(target_folder_cut, Solution, plane_points, cut_level
         plane_equation_coeffs[l][4] = -sum(x[1] .* plane_equation_coeffs[l][1:3])
     end
 
-    ## interpolate strain into P1 space
-    Strain = FEVector{Float64}("ϵ(u_h)",FESpace{H1P1{6}}(xgrid))
-    xCoordinates = xgrid[Coordinates]
-    nnodes = size(xCoordinates,2)
-    nodevals = nodevalues(Solution[1], Gradient)
-    strain = zeros(Float64,6)
-    for j = 1 : nnodes
-        eval_strain!(strain,view(nodevals,:,j), strain_model)
-        for k = 1 : 6
-            Strain.entries[(k-1)*nnodes+j] = strain[k]
-        end
-    end
-
     ## displace grid
     displace_mesh!(xgrid, Solution[1])
 
@@ -323,24 +310,44 @@ function perform_plane_cuts(target_folder_cut, Solution, plane_points, cut_level
         ## interpolate data on uniform cut_grid
         @info "Interpolating data on uniform cut mesh..."
         FES2D = FESpace{H1P1{3}}(xgrid_uni)
+        FES2D_∇u = FESpace{H1P1{9}}(xgrid_uni)
         FES2D_ϵ = FESpace{H1P1{6}}(xgrid_uni)
         FES2D_P = FESpace{H1P1{1}}(xgrid_uni)
         CutSolution_u = FEVector{Float64}("u (on 2D cut at z = $(cut_level))", FES2D)
+        CutSolution_∇u = FEVector{Float64}("∇u (on 2D cut at z = $(cut_level))", FES2D_∇u)
         CutSolution_ϵu = FEVector{Float64}("ϵ(u) (on 2D cut at z = $(cut_level))", FES2D_ϵ)
         CutSolution_P = FEVector{Float64}("P (on 2D cut at z = $(cut_level))", FES2D_P)
         @time interpolate!(CutSolution_u[1], Solution[1]; xtrafo = xtrafo!, start_cell = start_cell, not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
-        @time interpolate!(CutSolution_ϵu[1], Strain[1]; xtrafo = xtrafo!, start_cell = start_cell, not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
+        @time interpolate!(CutSolution_∇u[1], Solution[1]; operator = Gradient, xtrafo = xtrafo!, start_cell = start_cell, not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
+          
+        ## calculate strain from gradient interpolation on cut
+        nodevals = nodevalues(CutSolution_∇u[1], Identity)
+        strain = zeros(Float64,6)
+        nnodes = size(nodevals,2)
+        for j = 1 : nnodes
+            if nodevals[1,j] == NaN
+                for k = 1 : 6
+                    CutSolution_ϵu.entries[(k-1)*nnodes+j] = NaN
+                end
+            else
+                eval_strain!(strain,view(nodevals,:,j), strain_model)
+                for k = 1 : 6
+                    CutSolution_ϵu.entries[(k-1)*nnodes+j] = strain[k]
+                end
+            end
+        end
         if length(Solution) > 1
             @time interpolate!(CutSolution_P[1], Solution[2]; xtrafo = xtrafo!, start_cell = start_cell, not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
         end
 
         ## write data into csv file
         @info "Writing data into csv file..."
-        writeVTK!(target_folder_cut * "cut_$(cut_level)_data.vtu", [CutSolution_u[1],CutSolution_ϵu[1],CutSolution_P[1]]; operators = [Identity, Identity, Identity])
-        writeCSV!(target_folder_cut * "cut_$(cut_level)_data.txt", [CutSolution_u[1],CutSolution_ϵu[1],CutSolution_P[1]]; operators = [Identity, Identity, Identity], seperator = "\t")
+        writeVTK!(target_folder_cut * "cut_$(cut_level)_data.vtu", [CutSolution_u[1],CutSolution_∇u[1],CutSolution_ϵu[1],CutSolution_P[1]]; operators = [Identity, Identity, Identity, Identity])
+        writeCSV!(target_folder_cut * "cut_$(cut_level)_data.txt", [CutSolution_u[1],CutSolution_∇u[1],CutSolution_ϵu[1],CutSolution_P[1]]; operators = [Identity, Identity, Identity, Identity], seperator = "\t")
 
         ## replacing NaN with 1e30 so that min/max calculation works
         replace!(CutSolution_u.entries, NaN=>1e30)
+        replace!(CutSolution_∇u.entries, NaN=>1e30)
         replace!(CutSolution_ϵu.entries, NaN=>1e30)
         replace!(CutSolution_P.entries, NaN=>1e30)
 
@@ -369,9 +376,11 @@ function perform_plane_cuts(target_folder_cut, Solution, plane_points, cut_level
                 uxmax = max(uxmax,CutSolution_u[1][j])
                 uymax = max(uymax,CutSolution_u[1][nnodes_uni+j])
                 uzmax = max(uzmax,CutSolution_u[1][2*nnodes_uni+j])
-                for k = 1 : 6
-                    ϵmax[k] = max(ϵmax[k],CutSolution_ϵu[1][(k-1)*nnodes_uni+j])
-                    ϵmin[k] = min(ϵmin[k],CutSolution_ϵu[1][(k-1)*nnodes_uni+j])
+                if abs(CutSolution_ϵu.entries[j]) < 1e10
+                    for k = 1 : 6
+                        ϵmax[k] = max(ϵmax[k],CutSolution_ϵu[1][(k-1)*nnodes_uni+j])
+                        ϵmin[k] = min(ϵmin[k],CutSolution_ϵu[1][(k-1)*nnodes_uni+j])
+                    end
                 end
             end
         end

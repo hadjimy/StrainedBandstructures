@@ -19,6 +19,7 @@ watson_accesses = ["scale", "latfac", "femorder", "full_nonlin", "nrefs", "strai
 watson_allowedtypes = (Real, String, Symbol, Array, DataType)
 watson_datasubdir = "bimetal_watson"
 
+
 function run_watson(; dim = 2, force::Bool = false)
 
     allparams = Dict(
@@ -34,7 +35,7 @@ function run_watson(; dim = 2, force::Bool = false)
         "scale" => dim == 2 ? [[50,2000], [100, 2000]] : [[50,50,2000], [100,100,2000]],       # dimensions of bimetal
         "mb" => [0.5],                             # share of material A vs. material B
         "femorder" => [2],                         # order of the finite element discretisation
-        "upscaling" => [2],                        # upscaling of results (does so many extra nrefs for plots)
+        "upscaling" => [1],                        # upscaling of results (does so many extra nrefs for plots)
         "nrefs" => [1],                            # number of uniform refinements before solve
         "avgc" => [2],                             # lattice number calculation method (average case)
     )
@@ -44,21 +45,57 @@ function run_watson(; dim = 2, force::Bool = false)
 
     # run the simulations and save data
     for (i, d) in enumerate(dicts)
-        filename = savename(d, "jld2"; allowedtypes = watson_allowedtypes, accesses = watson_accesses)
-        if isfile(datadir(watson_datasubdir, filename)) && !force
-            @info "Skipping dataset $filename, because it already exists (and force = $force)..."
-        else
-            @info "Running dataset $filename..."
-            f = makesim(d)
-            wsave(datadir(watson_datasubdir, filename), f)
-            ## export data to VTK
-            filename_vtk = savename(d, ""; allowedtypes = watson_allowedtypes, accesses = watson_accesses)
-            writeVTK(datadir(watson_datasubdir, filename_vtk), f["solution"][1]; upscaling = f["upscaling"], strain_model = f["strainm"])
-        end
+        run_single(d; force = force)
     end
 end
 
-function makesim(d::Dict)
+
+# defaults for use with run_single
+function get_defaults()
+    params = Dict(
+        "latfac" => 0.05,  # lattice factor between material A and B (lc = [5,5*(1+latfac)])
+        "E" => [1e-6, 1e-6],                     # elastic moduli of material A and B
+        "ν" => [0.15, 0.15],                     # Poisson numbers of material A and B
+        "scale" => [50,2000],       # dimensions of bimetal
+        "full_nonlin" => true,                   # use complicated model (ignored if linear strain is used)
+        "use_emb" => true,                       # use embedding (true) or damping (false) solver ?
+        "nsteps" => 4,                           # number of embedding steps in embedding solver
+        "maxits" => 100,                         # max number of iteration in each embedding step
+        "tres" => 1e-12,                         # target residual in each embedding step
+        "mb" => 0.5,                             # share of material A vs. material B
+        "femorder" => 2,                         # order of the finite element discretisation
+        "upscaling" => 1,                        # upscaling of results (does so many extra nrefs for plots)
+        "nrefs" => 1,                            # number of uniform refinements before solve
+        "avgc" => 2,                             # lattice number calculation method (average case)
+    )
+    dim = length(params["scale"])
+    params["strainm"] = dim == 2 ? NonlinearStrain2D : NonlinearStrain3D
+    return params
+end
+function set_params!(d,kwargs)
+    for (k,v) in kwargs
+        d[String(k)]=v
+    end
+    return nothing
+end
+
+
+
+function run_single(d = nothing; force::Bool = false, kwargs...)
+
+    ## load parameter set
+    if d === nothing
+        d = get_defaults()
+        set_params!(d, kwargs)
+    end
+
+    filename = savename(d, "jld2"; allowedtypes = watson_allowedtypes, accesses = watson_accesses)
+    if isfile(datadir(watson_datasubdir, filename)) && !force
+        @info "Skipping dataset $filename... (run with force = true to enforce recomputation)"
+        return nothing
+    else
+        @info "Running dataset $filename..."
+    end
 
     ## compute lattice_mismatch
     fulld = copy(d)
@@ -71,12 +108,20 @@ function makesim(d::Dict)
     fulld["misfit_strain"] = misfit_strain
     fulld["α"] = α
 
-    # run simulation
+    ## run simulation
     solution, residual = main(fulld)
 
-    # save additional data
+    ## save additional data
     fulld["solution"] = solution
     fulld["residual"] = residual
+
+    ## save data to file
+    wsave(datadir(watson_datasubdir, filename), fulld)
+
+    ## export data to VTK
+    filename_vtk = savename(d, ""; allowedtypes = watson_allowedtypes, accesses = watson_accesses)
+    writeVTK(datadir(watson_datasubdir, filename_vtk), solution[1]; upscaling = fulld["upscaling"], strain_model = fulld["strainm"])
+
     return fulld
 end
 
