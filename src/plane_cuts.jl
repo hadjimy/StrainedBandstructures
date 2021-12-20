@@ -245,6 +245,167 @@ function get_cutgrids(xgrid, plane_equation_coeffs; npoints = 100, vol_cut = 1.0
 end
 
 
+function perform_simple_plane_cuts(target_folder_cut, Solution, plane_points, cut_levels; strain_model = NonlinearStrain3D, cut_npoints = 100, 
+    only_localsearch = true, vol_cut = 16, eps_gfind = 1e-11, Plotter = nothing)
+
+    xgrid = Solution[1].FES.xgrid
+
+    ### first find faces that lie in cut_levels
+
+    # faces with all nodes with the same z-coordinate are assigned to a z-level (otherwise z-level -1 is set)
+    xCoordinates = xgrid[Coordinates]
+    xFaceNodes = xgrid[FaceNodes]
+    nfaces::Int = num_sources(xFaceNodes)
+    z4Faces = zeros(Float64,nfaces)
+    nnodes4face = max_num_targets_per_source(xFaceNodes)
+
+    z::Float64 = 0
+    for face = 1 : nfaces
+        z = xCoordinates[3,xFaceNodes[1,face]]
+        for k = 2 : nnodes4face
+            if abs(xCoordinates[3,xFaceNodes[k,face]] - z) > eps_gfind
+                z = -1
+                break;
+            end
+        end
+        z4Faces[face] = z
+    end
+
+    ## these are the levels that have faces
+    @show sort(unique(z4Faces))
+
+    ### find three points on the plane z = cut_level and evaluate displacement at points of plane
+    #xref = [zeros(Float64,3),zeros(Float64,3),zeros(Float64,3)]
+    #cells = zeros(Int,3)
+    #PE = PointEvaluator(Solution[1], Identity)
+    #CF = CellFinder(xgrid)
+    #plane_equation_coeffs = zeros(Float64,4)
+
+    nodevals = nodevalues_view(Solution[1])
+    nodevals_gradient = nodevalues(Solution[1], Gradient)
+    strain = zeros(Float64,6)
+
+    for l = 1 : length(cut_levels)
+
+        cut_level = cut_levels[l]
+
+        ## define plane equation coefficients
+        ## 1:3 = normal vector
+        ##   4 = - normal vector ⋅ point on plane
+        ## find normal vector of displaced plane defined by the three points x[1], x[2] and x[3] 
+        #x = [[plane_points[1][1],plane_points[1][2],cut_level],[plane_points[2][1],plane_points[2][2],cut_level],[plane_points[3][1],plane_points[3][2],cut_level]]
+        #result = deepcopy(x[1])
+        #for i = 1 : 3
+        #    # find cell
+        #    cells[i] = gFindLocal!(xref[i], CF, x[i]; icellstart = 1, eps = eps_gfind)
+        #    if cells[i] == 0
+        #        cells[i] = gFindBruteForce!(xref[i], CF, x[i])
+        #    end
+        #    @assert cells[i] > 0
+        #    # evaluate displacement
+        #    evaluate!(result,PE,xref[i],cells[i])
+        #    ## displace point
+        #    x[i] .+= result
+        #end
+
+        #plane_equation_coeffs[1]  = (x[1][2] - x[2][2]) * (x[1][3] - x[3][3])
+        #plane_equation_coeffs[1] -= (x[1][3] - x[2][3]) * (x[1][2] - x[3][2])
+        #plane_equation_coeffs[2]  = (x[1][3] - x[2][3]) * (x[1][1] - x[3][1])
+        #plane_equation_coeffs[2] -= (x[1][1] - x[2][1]) * (x[1][3] - x[3][3])
+        #plane_equation_coeffs[3]  = (x[1][1] - x[2][1]) * (x[1][2] - x[3][2])
+        #plane_equation_coeffs[3] -= (x[1][2] - x[2][2]) * (x[1][1] - x[3][1])
+        #plane_equation_coeffs ./= sqrt(sum(plane_equation_coeffs.^2))
+        #plane_equation_coeffs[4] = -sum(x[1] .* plane_equation_coeffs[1:3])
+
+        ## rotate normal around x axis such that n[2] = 0
+        ## tan(alpha) = n[2]/n[3]
+        #alpha = atan(plane_equation_coeffs[2]/plane_equation_coeffs[3])
+        #@info "rotating around x-axis with alpha = $alpha"
+        #plane_equation_coeffs[3] = sin(alpha)*plane_equation_coeffs[2] + cos(alpha)*plane_equation_coeffs[3]
+        #plane_equation_coeffs[2] = 0
+
+        ## rotate normal around y axis such that n[1] = 0
+        ## tan(alpha) = n[2]/n[3]
+        #beta = -atan(plane_equation_coeffs[1]/plane_equation_coeffs[3])
+        # @info "rotating around x-axis with beta = $beta"
+        #plane_equation_coeffs[3] = -sin(beta)*plane_equation_coeffs[1] + cos(beta)*plane_equation_coeffs[3]
+        #plane_equation_coeffs[1] = 0
+
+
+        ## find faces for this cut_level
+        faces4level = findall(abs.(z4Faces .- cut_level) .< eps_gfind)
+        if length(faces4level) < 1
+            @warn "found no faces in grid that lie in level = $(cut_level), skipping this cut level..."
+            continue
+        end
+        nodes4level = unique(view(xFaceNodes,:,faces4level))
+        node_permute = zeros(Int32,size(xCoordinates,2))
+        node_permute[nodes4level] = 1 : length(nodes4level)
+        nnodes_cut = length(nodes4level)
+
+        ## map original 3D coordinates onto 2D plane
+        xCoordinatesCut = zeros(Float64,3,nnodes_cut)
+        #R .= [cos(beta) 0 sin(beta); 0 1 0; -sin(beta) 0 cos(beta)] * [1 0 0; 0 cos(alpha) -sin(alpha); 0 sin(alpha) cos(alpha)]
+        for j in nodes4level
+            #for n = 1 : 3, k = 1 : 3
+            #    xCoordinatesCut[n,node_permute[j]] += R[n,k] * (xCoordinates[k,j] + nodevals[k][j])
+            #end
+            for k = 1 : 3
+                xCoordinatesCut[k,node_permute[j]] = xCoordinates[k,j] + nodevals[k][j]
+            end
+        end
+
+        ## restrict coordinates to [x,y] plane
+        #z = xCoordinatesCut[3,end] # are all the same
+        #invR = inv(R)
+        #@show alpha, beta, z
+
+        cut_grid=ExtendableGrid{Float64,Int32}()
+        cut_grid[Coordinates] = xCoordinatesCut
+        cut_grid[CellNodes] = node_permute[xFaceNodes[:,faces4level]] # view not possible here
+        cut_grid[CellGeometries] = VectorOfConstants(Triangle2D,length(faces4level));
+        cut_grid[CellRegions] = ones(Int32,length(faces4level))
+        cut_grid[CoordinateSystem]=Cartesian2D
+
+
+        # ## define regular grid on cut plane where polarisation should be interpolated
+        # xmin = minimum(view(cut_grid[Coordinates],1,:))
+        # xmax = maximum(view(cut_grid[Coordinates],1,:))
+        # ymin = minimum(view(cut_grid[Coordinates],2,:))
+        # ymax = maximum(view(cut_grid[Coordinates],2,:))
+        # @info "Creating uniform grid for bounding box ($xmin,$xmax) x ($ymin,$ymax)"
+        # h_uni = [xmax - xmin,ymax-ymin] ./ (cut_npoints-1)
+        # xgrid_uni = simplexgrid(collect(xmin:h_uni[1]:xmax),collect(ymin:h_uni[2]:ymax))
+
+        ## interpolate data on cut_grid
+        @info "Interpolating data on cut mesh..."
+        FES2D = FESpace{H1P1{3}}(cut_grid)
+        FES2D_∇u = FESpace{H1P1{9}}(cut_grid)
+        FES2D_ϵu = FESpace{H1P1{6}}(cut_grid)
+        CutSolution_u = FEVector{Float64}("u (on 2D cut at z = $(cut_level))", FES2D)
+        CutSolution_∇u = FEVector{Float64}("∇u (on 2D cut at z = $(cut_level))", FES2D_∇u)
+        CutSolution_ϵu = FEVector{Float64}("ϵ(u) (on 2D cut at z = $(cut_level))", FES2D_ϵu)
+        
+        ## calculate strain from gradient interpolation on cut
+        for j = 1 : nnodes_cut
+            for k = 1 : 3
+                CutSolution_u.entries[(k-1)*nnodes_cut + j] = nodevals[k][nodes4level[j]]
+            end
+            for k = 1 : 9 
+                CutSolution_∇u.entries[(k-1)*nnodes_cut + j] = nodevals_gradient[k,nodes4level[j]]
+                eval_strain!(strain,view(nodevals_gradient,:,nodes4level[j]), strain_model)
+                for k = 1 : 6
+                    CutSolution_ϵu.entries[(k-1)*nnodes_cut + j] = strain[k]
+                end
+            end
+        end
+
+        ## write data into csv file
+        @info "Exporting cut data for cut_level = $(cut_level)..."
+        writeVTK!(target_folder_cut * "cut_$(cut_level)_data.vtu", [CutSolution_u[1], CutSolution_∇u[1], CutSolution_ϵu[1]]; operators = [Identity, Identity, Identity])
+    end
+end
+
 
 function perform_plane_cuts(target_folder_cut, Solution, plane_points, cut_levels; strain_model = NonlinearStrain3D, cut_npoints = 100, 
     only_localsearch = true, vol_cut = 16, eps_gfind = 1e-11, Plotter = nothing)

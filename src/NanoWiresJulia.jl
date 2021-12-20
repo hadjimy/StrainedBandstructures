@@ -45,7 +45,8 @@ export get_polarisation_operator # wip
 export get_energy_integrator
 
 include("plane_cuts.jl")
-export tet_x_plane!, plane_cut, get_cutgrids, perform_plane_cuts
+export tet_x_plane!, plane_cut, get_cutgrids
+export perform_simple_plane_cuts, perform_plane_cuts
 
 include("export.jl")
 export writeVTK

@@ -282,10 +282,11 @@ function load_data(d = nothing; kwargs...)
     return d
 end
 
-function postprocess(filename; Plotter = nothing, cut_levels = "auto", cut_npoints = 100, vol_cut = "auto", upscaling = 0)
+function postprocess(filename; Plotter = nothing, cut_levels = "auto", simple_cuts = false, cut_npoints = 100, vol_cut = "auto", upscaling = 0)
 
     if typeof(filename) <: Dict
         d = filename
+        filename = savename(d, "jld2"; allowedtypes = watson_allowedtypes, accesses = watson_accesses)
     else
         d = wload(datadir(watson_datasubdir, filename))
     end
@@ -306,6 +307,7 @@ function postprocess(filename; Plotter = nothing, cut_levels = "auto", cut_npoin
     end
 
     ## save again
+    @show filename
     wsave(datadir(watson_datasubdir, filename), d)
 
     ## compute cuts (only exported as vtu and png files)
@@ -320,7 +322,11 @@ function postprocess(filename; Plotter = nothing, cut_levels = "auto", cut_npoin
     mkpath(datadir(watson_datasubdir, filename_cuts))
     diam = geometry[1] + geometry[2]
     plane_points = [[-0.25*diam,-0.25*diam],[0.25*diam,-0.25*diam],[-0.25*diam,0.25*diam]] # = [X,Y] coordinates of the three points that define the cut plane
-    perform_plane_cuts(datadir(watson_datasubdir, filename_cuts), solution, plane_points, cut_levels; strain_model = strainm, cut_npoints = cut_npoints, vol_cut = vol_cut, Plotter = Plotter)
+    #if simple_cuts # needs grid that triangulates cut_levels
+    #    perform_simple_plane_cuts(datadir(watson_datasubdir, filename_cuts), solution, plane_points, cut_levels; eps_gfind = 1e-10, only_localsearch = true, strain_model = strainm, cut_npoints = 100, vol_cut = 100, Plotter = Plotter)
+    #else
+        perform_plane_cuts(datadir(watson_datasubdir, filename_cuts), solution, plane_points, cut_levels; strain_model = strainm, cut_npoints = cut_npoints, vol_cut = vol_cut, Plotter = Plotter)
+    #end
 end
 
 end

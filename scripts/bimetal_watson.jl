@@ -277,7 +277,7 @@ function postprocess(;
                 filename_cuts = savename(data, ""; allowedtypes = watson_allowedtypes, accesses = watson_accesses) * "_CUTS/"
                 mkpath(datadir(watson_datasubdir, filename_cuts))
                 plane_points = [[0.25*scale[1],0.25*scale[2]],[0.75*scale[1],0.25*scale[2]],[0.25*scale[1],0.75*scale[2]]] # = [X,Y] coordinates of the three points that define the cut plane
-                perform_plane_cuts(datadir(watson_datasubdir, filename_cuts), solution, plane_points, cut_levels; eps_gfind = 1e-10, only_localsearch = true, strain_model = strainm, cut_npoints = 100, vol_cut = 100, Plotter = Plotter)
+                perform_simple_plane_cuts(datadir(watson_datasubdir, filename_cuts), solution, plane_points, cut_levels; eps_gfind = 1e-10, only_localsearch = true, strain_model = strainm, cut_npoints = 100, vol_cut = 100, Plotter = Plotter)
             end
         end
             
