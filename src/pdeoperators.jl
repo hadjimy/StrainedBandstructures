@@ -13,6 +13,7 @@ function get_displacement_operator(
     emb = [1],                  # embedding coefficients for complicated nonlinear features
                                 # (overwrite with your array to use with embedding solver)
     regions = [0],              # regions where the operator integrates
+    store = Threads.nthreads() > 1,  # separate storage for operator (allows parallel assembly, but only reasonable if nthreads() > 1)
     quadorder = 2)              # quadrature order
 
     cache_offset::Int = dim^2
@@ -51,9 +52,10 @@ function get_displacement_operator(
                          Gradient,                                      # operator for test function
                          nonlinear_operator_kernel!,                    # kernel function (above)
                          [dim^2, dim^2, Int(dim^2+dim*(dim+1)/2)];      # argument sizes for kernel function result and input and cache
-                         name = "(I + emb*∇u)C(ϵ(u)-ϵ0) : ∇v",         # name for print-outs
+                         name = "(I + emb*∇u)C(ϵ(u)-ϵ0) : ∇v) $(store ? "[stored]" : "")",         # name for print-outs
                          regions = regions,                             # regions where nonlinearform intergrates
                          quadorder = quadorder,                         # quadrature order
+                         store = store,
                          newton = true)                                 # activate Newton derivatives (false won't work here)
 end
 

@@ -3,6 +3,7 @@ module nanowire
 using NanoWiresJulia
 using GradientRobustMultiPhysics
 using ExtendableGrids
+using ExtendableSparse
 using GridVisualize
 using Printf
 using SimplexGridFactory
@@ -10,6 +11,7 @@ using Triangulate
 using TetGen
 using DrWatson
 using DataFrames
+using Pardiso
 
 ## start with run_watson() --> result goto data directory
 ## postprocess data with postprocess(; Plotter = PyPlot) --> images go to plots directory
@@ -43,7 +45,8 @@ function get_defaults()
         "avgc" => 2,                            # lattice number calculation method (average case)
         "polarisation" => true,                 # also solve for polarisation
         "fully_coupled" => false,               # parameter for later when we have the full model
-        "postprocess" => false,                  # angle calculation, vtk files, cuts
+        "postprocess" => false,                 # angle calculation, vtk files, cuts
+        "linsolver" => ExtendableSparse.MKLPardisoLU, # linear solver (try ExtendableSparse.MKLPardisoLU or ExtendableSparse.LUFactorization)
     )
     return params
 end
@@ -191,10 +194,11 @@ function main(d = nothing; verbosity = 0, Plotter = nothing, force::Bool = false
     FEType_P = femorder_P == 1 ? H1P1{1} : H1P2{1,3}
 
     ## call solver
-    @unpack nsteps, tres, maxits = d
+    @unpack nsteps, tres, maxits, linsolver = d
     Solution, residual = solve_by_embedding(Problem, xgrid, parameters;
                     subiterations = subiterations,
                     nsteps = [nsteps, 1],
+                    linsolver = linsolver,
                     FETypes = [FEType_D, FEType_P],
                     target_residual = [tres, tres],
                     maxiterations = [maxits, 1])

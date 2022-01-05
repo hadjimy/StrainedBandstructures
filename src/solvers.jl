@@ -8,11 +8,13 @@ function solve_by_embedding(
             xgrid::ExtendableGrid{Tv,Ti},                   # grid
             emb_params;                                     # embedding parameters (operators must depend on them!)
             FETypes = [H1P1{size(xgrid[Coordinates],1)}],   # FETypes (default: P1)
+            linsolver = "UMFPACK",                          # change solver (e.g. "MKLPARDISO", "UMFPACK", or any ExtendableSparse.LUFactorization)
             nsteps = ones(Int,length(FETypes)),             # number of embedding steps (parameters are scaled by nsteps equidistant steps within 0:1)
             subiterations = [1:length(FETypes)],            # maximal iterations in each embedding step
             target_residual = 1e-12*ones(Int,length(FETypes)),
             maxiterations = 20*ones(Int,length(FETypes))) where {Tv,Ti}
 
+    @info "solver = $linsolver"
     ## discretise the problem
     ## create finite element space (FESpace) and solution vector (FEVector)
     ## generate FESpace and FEVector for discretisation
@@ -36,7 +38,7 @@ function solve_by_embedding(
 
             ## solve by GradientRobustMultiPhysics standard fixed-point solver
             println("Solving problem with parameter emb_params = $emb_params (embedding step $j/$(nsteps[s]))...")
-            residual = solve!(Solution, Problem; subiterations = subiterations[s], show_statistics = true,  maxiterations = maxiterations[s], target_residual = target_residual[s])
+            residual = solve!(Solution, Problem; subiterations = subiterations[s], show_statistics = true, linsolver = linsolver, maxiterations = maxiterations[s], target_residual = target_residual[s])
         end
     end
 
@@ -55,6 +57,7 @@ end
 function solve_by_damping(
             Problem,                                            # problem description
             xgrid::ExtendableGrid{Tv,Ti},                       # grid
+            linsolver = "UMFPACK",                              # change solver (e.g. "MKLPARDISO", "UMFPACK", or any ExtendableSparse.LUFactorization)
             EIntegrator = nothing;                              # energy integrator
             FETypes = [H1P1{size(xgrid[Coordinates],1)}],       # FETypes (default: P1)
             target_residual = 1e-12,                            # target residual
@@ -145,7 +148,7 @@ function solve_by_damping(
     
     ## solve
     println("Solving by damping...")
-    residual = solve!(Solution, Problem; subiterations = subiterations, target_residual = target_residual, maxiterations = maxiterations, damping = get_damping)
+    residual = solve!(Solution, Problem; linsolver = linsolver, subiterations = subiterations, target_residual = target_residual, maxiterations = maxiterations, damping = get_damping)
 
     return Solution, residual
 end
