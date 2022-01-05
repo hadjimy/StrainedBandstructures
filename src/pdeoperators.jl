@@ -54,7 +54,7 @@ function get_displacement_operator(
                          name = "(I + emb*∇u)C(ϵ(u)-ϵ0) : ∇v",         # name for print-outs
                          regions = regions,                             # regions where nonlinearform intergrates
                          quadorder = quadorder,                         # quadrature order
-                         ADnewton = true)                               # activate Newton derivatives (false won't work here)
+                         newton = true)                                 # activate Newton derivatives (false won't work here)
 end
 
 ## assembles bilinearform (for the displacement off-diagonal block of the polarisation equation)
@@ -250,7 +250,7 @@ function get_polarisation_operator(
                          name = "(E ϵ(u) - κ det(F) inv(FF^T) ∇V_P) : ∇W_P",     # name for print-outs
                          regions = regions,                         # regions where nonlinearform intergrates
                          quadorder = quadorder,                     # quadrature order
-                         ADnewton = true)                           # activate Newton derivatives (false won't work here)
+                         newton = true)                             # activate Newton derivatives (false won't work here)
 end
 
 # Voigt notation compresses entries of symmetric matrices
