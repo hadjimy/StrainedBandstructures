@@ -245,8 +245,13 @@ function get_cutgrids(xgrid, plane_equation_coeffs; npoints = 100, vol_cut = 1.0
 end
 
 
-function perform_simple_plane_cuts(target_folder_cut, Solution, plane_points, cut_levels; strain_model = NonlinearStrain3D, cut_npoints = 100, 
-    only_localsearch = true, vol_cut = 16, eps_gfind = 1e-11, Plotter = nothing)
+function perform_simple_plane_cuts(target_folder_cut, Solution, plane_points, cut_levels; 
+    strain_model = NonlinearStrain3D, 
+    export_uniform_data = true,
+    cut_npoints = 200, 
+    only_localsearch = true,
+    eps_gfind = 1e-11,
+    Plotter = nothing)
 
     xgrid = Solution[1].FES.xgrid
 
@@ -254,10 +259,13 @@ function perform_simple_plane_cuts(target_folder_cut, Solution, plane_points, cu
 
     # faces with all nodes with the same z-coordinate are assigned to a z-level (otherwise z-level -1 is set)
     xCoordinates = xgrid[Coordinates]
+    xCellRegions = xgrid[CellRegions]
     xFaceNodes = xgrid[FaceNodes]
+    xFaceCells = xgrid[FaceCells]
     nfaces::Int = num_sources(xFaceNodes)
     z4Faces = zeros(Float64,nfaces)
     nnodes4face = max_num_targets_per_source(xFaceNodes)
+    nnodes = size(xCoordinates,2)
 
     z::Float64 = 0
     for face = 1 : nfaces
@@ -274,63 +282,30 @@ function perform_simple_plane_cuts(target_folder_cut, Solution, plane_points, cu
     ## these are the levels that have faces
     @show sort(unique(z4Faces))
 
-    ### find three points on the plane z = cut_level and evaluate displacement at points of plane
-    #xref = [zeros(Float64,3),zeros(Float64,3),zeros(Float64,3)]
-    #cells = zeros(Int,3)
-    #PE = PointEvaluator(Solution[1], Identity)
-    #CF = CellFinder(xgrid)
-    #plane_equation_coeffs = zeros(Float64,4)
+    ## find three points on the plane z = cut_level and evaluate displacement at points of plane
+    xref = [zeros(Float64,3),zeros(Float64,3),zeros(Float64,3)]
+    cells = zeros(Int,3)
+    PE = PointEvaluator(Solution[1], Identity)
+    CF = CellFinder(xgrid)
+    plane_equation_coeffs = zeros(Float64,4)
 
+    ## access nodal values of displacement
     nodevals = nodevalues_view(Solution[1])
+
+    ## compute nodal values of gradient of displacement and make a P1 function out of it
     nodevals_gradient = nodevalues(Solution[1], Gradient)
+    GlobalInterpolation_∇u = FEVector{Float64}("∇u (global P1 interpolation)", FESpace{H1P1{9}}(xgrid))
+    for j = 1 : 9
+        view(GlobalInterpolation_∇u.entries,(j-1)*nnodes+1:j*nnodes) .= view(nodevals_gradient,j,:)
+    end
     strain = zeros(Float64,6)
 
     for l = 1 : length(cut_levels)
 
         cut_level = cut_levels[l]
 
-        ## define plane equation coefficients
-        ## 1:3 = normal vector
-        ##   4 = - normal vector ⋅ point on plane
-        ## find normal vector of displaced plane defined by the three points x[1], x[2] and x[3] 
-        #x = [[plane_points[1][1],plane_points[1][2],cut_level],[plane_points[2][1],plane_points[2][2],cut_level],[plane_points[3][1],plane_points[3][2],cut_level]]
-        #result = deepcopy(x[1])
-        #for i = 1 : 3
-        #    # find cell
-        #    cells[i] = gFindLocal!(xref[i], CF, x[i]; icellstart = 1, eps = eps_gfind)
-        #    if cells[i] == 0
-        #        cells[i] = gFindBruteForce!(xref[i], CF, x[i])
-        #    end
-        #    @assert cells[i] > 0
-        #    # evaluate displacement
-        #    evaluate!(result,PE,xref[i],cells[i])
-        #    ## displace point
-        #    x[i] .+= result
-        #end
 
-        #plane_equation_coeffs[1]  = (x[1][2] - x[2][2]) * (x[1][3] - x[3][3])
-        #plane_equation_coeffs[1] -= (x[1][3] - x[2][3]) * (x[1][2] - x[3][2])
-        #plane_equation_coeffs[2]  = (x[1][3] - x[2][3]) * (x[1][1] - x[3][1])
-        #plane_equation_coeffs[2] -= (x[1][1] - x[2][1]) * (x[1][3] - x[3][3])
-        #plane_equation_coeffs[3]  = (x[1][1] - x[2][1]) * (x[1][2] - x[3][2])
-        #plane_equation_coeffs[3] -= (x[1][2] - x[2][2]) * (x[1][1] - x[3][1])
-        #plane_equation_coeffs ./= sqrt(sum(plane_equation_coeffs.^2))
-        #plane_equation_coeffs[4] = -sum(x[1] .* plane_equation_coeffs[1:3])
-
-        ## rotate normal around x axis such that n[2] = 0
-        ## tan(alpha) = n[2]/n[3]
-        #alpha = atan(plane_equation_coeffs[2]/plane_equation_coeffs[3])
-        #@info "rotating around x-axis with alpha = $alpha"
-        #plane_equation_coeffs[3] = sin(alpha)*plane_equation_coeffs[2] + cos(alpha)*plane_equation_coeffs[3]
-        #plane_equation_coeffs[2] = 0
-
-        ## rotate normal around y axis such that n[1] = 0
-        ## tan(alpha) = n[2]/n[3]
-        #beta = -atan(plane_equation_coeffs[1]/plane_equation_coeffs[3])
-        # @info "rotating around x-axis with beta = $beta"
-        #plane_equation_coeffs[3] = -sin(beta)*plane_equation_coeffs[1] + cos(beta)*plane_equation_coeffs[3]
-        #plane_equation_coeffs[1] = 0
-
+        #### SIMPLE CUT GRIDS ###
 
         ## find faces for this cut_level
         faces4level = findall(abs.(z4Faces .- cut_level) .< eps_gfind)
@@ -343,39 +318,23 @@ function perform_simple_plane_cuts(target_folder_cut, Solution, plane_points, cu
         node_permute[nodes4level] = 1 : length(nodes4level)
         nnodes_cut = length(nodes4level)
 
+
         ## map original 3D coordinates onto 2D plane
         xCoordinatesCut = zeros(Float64,3,nnodes_cut)
-        #R .= [cos(beta) 0 sin(beta); 0 1 0; -sin(beta) 0 cos(beta)] * [1 0 0; 0 cos(alpha) -sin(alpha); 0 sin(alpha) cos(alpha)]
         for j in nodes4level
-            #for n = 1 : 3, k = 1 : 3
-            #    xCoordinatesCut[n,node_permute[j]] += R[n,k] * (xCoordinates[k,j] + nodevals[k][j])
-            #end
+            ## displaced nodes
             for k = 1 : 3
                 xCoordinatesCut[k,node_permute[j]] = xCoordinates[k,j] + nodevals[k][j]
             end
         end
 
-        ## restrict coordinates to [x,y] plane
-        #z = xCoordinatesCut[3,end] # are all the same
-        #invR = inv(R)
-        #@show alpha, beta, z
-
+        ## construct simple cut grid
         cut_grid=ExtendableGrid{Float64,Int32}()
         cut_grid[Coordinates] = xCoordinatesCut
         cut_grid[CellNodes] = node_permute[xFaceNodes[:,faces4level]] # view not possible here
         cut_grid[CellGeometries] = VectorOfConstants(Triangle2D,length(faces4level));
         cut_grid[CellRegions] = ones(Int32,length(faces4level))
         cut_grid[CoordinateSystem]=Cartesian2D
-
-
-        # ## define regular grid on cut plane where polarisation should be interpolated
-        # xmin = minimum(view(cut_grid[Coordinates],1,:))
-        # xmax = maximum(view(cut_grid[Coordinates],1,:))
-        # ymin = minimum(view(cut_grid[Coordinates],2,:))
-        # ymax = maximum(view(cut_grid[Coordinates],2,:))
-        # @info "Creating uniform grid for bounding box ($xmin,$xmax) x ($ymin,$ymax)"
-        # h_uni = [xmax - xmin,ymax-ymin] ./ (cut_npoints-1)
-        # xgrid_uni = simplexgrid(collect(xmin:h_uni[1]:xmax),collect(ymin:h_uni[2]:ymax))
 
         ## interpolate data on cut_grid
         @info "Interpolating data on cut mesh..."
@@ -402,7 +361,254 @@ function perform_simple_plane_cuts(target_folder_cut, Solution, plane_points, cu
 
         ## write data into csv file
         @info "Exporting cut data for cut_level = $(cut_level)..."
-        writeVTK!(target_folder_cut * "cut_$(cut_level)_data.vtu", [CutSolution_u[1], CutSolution_∇u[1], CutSolution_ϵu[1]]; operators = [Identity, Identity, Identity])
+        writeVTK!(target_folder_cut * "simple_cut_$(cut_level)_data.vtu", [CutSolution_u[1], CutSolution_∇u[1], CutSolution_ϵu[1]]; operators = [Identity, Identity, Identity])
+
+
+        #### UNIFORM CUT GRIDS ###
+        if export_uniform_data
+
+            start_cell::Int = xFaceCells[1,faces4level[1]]
+
+            # define plane equation coefficients
+            # 1:3 = normal vector
+            #   4 = - normal vector ⋅ point on plane
+            # find normal vector of displaced plane defined by the three points x[1], x[2] and x[3] 
+            x = [[plane_points[1][1],plane_points[1][2],cut_level],[plane_points[2][1],plane_points[2][2],cut_level],[plane_points[3][1],plane_points[3][2],cut_level]]
+            result = deepcopy(x[1])
+            for i = 1 : 3
+                # find cell
+                cells[i] = gFindLocal!(xref[i], CF, x[i]; icellstart = start_cell, eps = eps_gfind)
+                if cells[i] == 0
+                    @warn "local search cell search unexpectedly failed, using brute force..."
+                    cells[i] = gFindBruteForce!(xref[i], CF, x[i])
+                end
+                @assert cells[i] > 0
+                # evaluate displacement
+                evaluate!(result,PE,xref[i],cells[i])
+                ## displace point
+                x[i] .+= result
+            end
+
+            plane_equation_coeffs[1]  = (x[1][2] - x[2][2]) * (x[1][3] - x[3][3])
+            plane_equation_coeffs[1] -= (x[1][3] - x[2][3]) * (x[1][2] - x[3][2])
+            plane_equation_coeffs[2]  = (x[1][3] - x[2][3]) * (x[1][1] - x[3][1])
+            plane_equation_coeffs[2] -= (x[1][1] - x[2][1]) * (x[1][3] - x[3][3])
+            plane_equation_coeffs[3]  = (x[1][1] - x[2][1]) * (x[1][2] - x[3][2])
+            plane_equation_coeffs[3] -= (x[1][2] - x[2][2]) * (x[1][1] - x[3][1])
+            plane_equation_coeffs ./= sqrt(sum(plane_equation_coeffs.^2))
+            plane_equation_coeffs[4] = -sum(x[1] .* plane_equation_coeffs[1:3])
+
+            ## rotate normal around x axis such that n[2] = 0
+            ## tan(alpha) = n[2]/n[3]
+            alpha = atan(plane_equation_coeffs[2]/plane_equation_coeffs[3])
+            @info "rotating around x-axis with alpha = $alpha"
+            plane_equation_coeffs[3] = sin(alpha)*plane_equation_coeffs[2] + cos(alpha)*plane_equation_coeffs[3]
+            plane_equation_coeffs[2] = 0
+
+            ## rotate normal around y axis such that n[1] = 0
+            ## tan(alpha) = n[2]/n[3]
+            beta = -atan(plane_equation_coeffs[1]/plane_equation_coeffs[3])
+            @info "rotating around x-axis with beta = $beta"
+            plane_equation_coeffs[3] = -sin(beta)*plane_equation_coeffs[1] + cos(beta)*plane_equation_coeffs[3]
+            plane_equation_coeffs[1] = 0
+
+            ## displace grid
+            displace_mesh!(xgrid, Solution[1])
+
+            ## map original 3D coordinates onto 2D plane
+            xCoordinatesCutPlane = zeros(Float64,3,nnodes_cut)
+            R = [cos(beta) 0 sin(beta); 0 1 0; -sin(beta) 0 cos(beta)] * [1 0 0; 0 cos(alpha) -sin(alpha); 0 sin(alpha) cos(alpha)]
+            for j in nodes4level
+                ## displaced nodes moved to plane
+                for n = 1 : 3, k = 1 : 3
+                    xCoordinatesCutPlane[n,node_permute[j]] += R[n,k] * (xCoordinates[k,j])
+                end
+            end
+
+            ## restrict coordinates to [x,y] plane
+            max_z = maximum(view(xCoordinatesCutPlane,3,:))
+            min_z = minimum(view(xCoordinatesCutPlane,3,:))
+
+            ## get z level
+            z = (max_z + min_z)/2
+            z_error = max_z - min_z
+            @info "maximal difference between z coordinates = $(z_error)"
+            #invR = inv(R)
+
+
+            ## define bounding box and uniform cut grid
+            xmin = minimum(view(xCoordinatesCutPlane,1,:))
+            xmax = maximum(view(xCoordinatesCutPlane,1,:))
+            ymin = minimum(view(xCoordinatesCutPlane,2,:))
+            ymax = maximum(view(xCoordinatesCutPlane,2,:))
+            @info "Creating uniform grid for bounding box ($xmin,$xmax) x ($ymin,$ymax)"
+            h_uni = [xmax - xmin,ymax - ymin] ./ (cut_npoints-1)
+            xgrid_uni = simplexgrid(collect(0:h_uni[1]:xmax-xmin),collect(0:h_uni[2]:ymax-ymin))
+            
+            # mapping from 3D coordinates on cut_grid to 2D coordinates on xgrid_uni
+            invR::Matrix{Float64} = inv(R)
+            function xtrafo!(x3D,x2D)
+                for j = 1 : 3
+                    x3D[j] = invR[j,1] * (x2D[1] + xmin) + invR[j,2] * (x2D[2] + ymin) + invR[j,3] * z  # invR * [x2D[1],x2D[2],z]
+                end
+                return nothing
+            end
+
+
+            ## interpolate data on uniform cut_grid
+            @info "Interpolating data on uniform cut mesh..."
+            FES2D = FESpace{H1P1{3}}(xgrid_uni)
+            FES2D_∇u = FESpace{H1P1{9}}(xgrid_uni)
+            FES2D_ϵ = FESpace{H1P1{6}}(xgrid_uni)
+            FES2D_P = FESpace{H1P1{1}}(xgrid_uni)
+            CutSolution_u = FEVector{Float64}("u (on 2D cut at z = $(cut_level))", FES2D)
+            CutSolution_∇u = FEVector{Float64}("∇u (on 2D cut at z = $(cut_level))", FES2D_∇u)
+            CutSolution_ϵu = FEVector{Float64}("ϵ(u) (on 2D cut at z = $(cut_level))", FES2D_ϵ)
+            CutSolution_P = FEVector{Float64}("P (on 2D cut at z = $(cut_level))", FES2D_P)
+            @time interpolate!(CutSolution_u[1], Solution[1]; xtrafo = xtrafo!, start_cell = start_cell, not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
+            @time interpolate!(CutSolution_∇u[1], GlobalInterpolation_∇u[1]; operator = Identity, xtrafo = xtrafo!, start_cell = start_cell, not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
+            
+            ## calculate strain from gradient interpolation on cut
+            nodevals_cut = nodevalues(CutSolution_∇u[1], Identity)
+            strain = zeros(Float64,6)
+            nnodes_cut = size(nodevals_cut,2)
+            for j = 1 : nnodes_cut
+                if nodevals_cut[1,j] == NaN
+                    for k = 1 : 6
+                        CutSolution_ϵu.entries[(k-1)*nnodes_cut+j] = NaN
+                    end
+                else
+                    eval_strain!(strain,view(nodevals_cut,:,j), strain_model)
+                    for k = 1 : 6
+                        CutSolution_ϵu.entries[(k-1)*nnodes_cut+j] = strain[k]
+                    end
+                end
+            end
+            if length(Solution) > 1
+                @time interpolate!(CutSolution_P[1], Solution[2]; xtrafo = xtrafo!, start_cell = start_cell, not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
+            end
+
+            ## write data into vtk file
+            @info "Writing data into vtk file..."
+            writeVTK!(target_folder_cut * "uniform_cut_$(cut_level)_data.vtu", [CutSolution_u[1],CutSolution_∇u[1],CutSolution_ϵu[1],CutSolution_P[1]]; operators = [Identity, Identity, Identity, Identity])
+           
+            ## write material map into txt files
+            @info "Writing material map file..."
+            filename_material = target_folder_cut * "uniform_cut_$(cut_level)_materialmap.txt"
+            io = open(filename_material, "w")
+            xCoordinatesUni = xgrid_uni[Coordinates]
+            nnodes_uni = size(xCoordinatesUni,2)
+            xdim = size(xCoordinatesUni,1)
+            @printf(io, "WIRE STRESSOR OUTSIDE X Y\n")
+            cell::Int = 0
+            region::Int = 0
+            x3D = zeros(Float64,3)
+            for n = 1 : nnodes_uni
+                xtrafo!(x3D,view(xCoordinatesUni,:,n))
+                cell = gFindLocal!(xref[1], CF, x3D; icellstart = start_cell, eps = eps_gfind)
+                region = cell == 0 ? 0 : xCellRegions[cell]
+                if region == 1
+                    @printf(io, "1 0 0 ")
+                elseif region == 2
+                    @printf(io, "0 1 0 ")
+                elseif region == 0
+                    @printf(io, "0 0 1 ")
+                end
+                for j = 1 : xdim
+                    @printf(io, "%.6f ",xCoordinatesUni[j,n])
+                end
+                @printf(io, "\n")
+            end
+            close(io)
+
+            ## write material map into txt files
+            component_names = ["eXX","eYY","eZZ","eYZ","eXZ","eXY"]
+            for c = 1 : 6
+                @info "Writing strain distribution file for $(component_names[c])..."
+                filename_eAB = target_folder_cut * "uniform_cut_$(cut_level)_" * component_names[c] * ".txt"
+                io = open(filename_eAB, "w")
+                @printf(io, "%s\n", component_names[c])
+                for n = 1 : nnodes_uni
+                    @printf(io, "%.6f\n",CutSolution_ϵu.entries[(c-1)*nnodes_uni+n])
+                end
+                close(io)
+            end
+            @info "Writing strain distribution file for eYZ-eYX..."
+            filename_eYZ_eYX = target_folder_cut * "uniform_cut_$(cut_level)_eYZ-eYX.txt"
+            io = open(filename_eYZ_eYX, "w")
+            @printf(io, "eYZ-eYX\n")
+            for n = 1 : nnodes_uni
+                @printf(io, "%.6f\n",CutSolution_ϵu.entries[3*nnodes_uni+n] - CutSolution_ϵu.entries[5*nnodes_uni+n])
+            end
+            close(io)
+
+            ## replacing NaN with 1e30 so that min/max calculation works
+            replace!(CutSolution_u.entries, NaN=>1e30)
+            replace!(CutSolution_∇u.entries, NaN=>1e30)
+            replace!(CutSolution_ϵu.entries, NaN=>1e30)
+            replace!(CutSolution_P.entries, NaN=>1e30)
+
+            ## plot displacement, strain and polarisation on uniform cut grid
+            @info "Plotting data on uniform cut grid..."
+            uxmin::Float64 = 1e30
+            uxmax::Float64 = -1e30
+            uymin::Float64 = 1e30
+            uymax::Float64 = -1e30
+            uzmin::Float64 = 1e30
+            uzmax::Float64 = -1e30
+            Pmin::Float64 = 1e30
+            Pmax::Float64 = -1e30
+            ϵmax = -1e30*ones(Float64,6)
+            ϵmin = 1e30*ones(Float64,6)
+            nnodes_uni = size(xgrid_uni[Coordinates],2)
+            for j = 1 : nnodes_uni
+                if abs(CutSolution_u.entries[j]) < 1e10
+                    if length(Solution) > 1
+                        Pmin = min(Pmin,CutSolution_P[1][j])
+                        Pmax = max(Pmax,CutSolution_P[1][j])
+                    end
+                    uxmin = min(uxmin,CutSolution_u[1][j])
+                    uymin = min(uymin,CutSolution_u[1][nnodes_uni+j])
+                    uzmin = min(uzmin,CutSolution_u[1][2*nnodes_uni+j])
+                    uxmax = max(uxmax,CutSolution_u[1][j])
+                    uymax = max(uymax,CutSolution_u[1][nnodes_uni+j])
+                    uzmax = max(uzmax,CutSolution_u[1][2*nnodes_uni+j])
+                    if abs(CutSolution_ϵu.entries[j]) < 1e10
+                        for k = 1 : 6
+                            ϵmax[k] = max(ϵmax[k],CutSolution_ϵu[1][(k-1)*nnodes_uni+j])
+                            ϵmin[k] = min(ϵmin[k],CutSolution_ϵu[1][(k-1)*nnodes_uni+j])
+                        end
+                    end
+                end
+            end
+            scalarplot(xgrid_uni, view(CutSolution_u.entries,1:nnodes_uni), Plotter = Plotter; flimits = (uxmin,uxmax), title = "ux on cut", fignumber = 1)
+            if isdefined(Plotter,:savefig)
+                Plotter.savefig(target_folder_cut * "uniform_cut_$(cut_level)_ux.png")
+            end
+            scalarplot(xgrid_uni, view(CutSolution_u.entries,nnodes_uni+1:2*nnodes_uni), Plotter = Plotter; flimits = (uymin,uymax), title = "uy on cut", fignumber = 1)
+            if isdefined(Plotter,:savefig)
+                Plotter.savefig(target_folder_cut * "uniform_cut_$(cut_level)_uy.png")
+            end
+            scalarplot(xgrid_uni, view(CutSolution_u.entries,2*nnodes_uni+1:3*nnodes_uni), Plotter = Plotter; flimits = (uzmin,uzmax), title = "uz on cut", fignumber = 1)
+            if isdefined(Plotter,:savefig)
+                Plotter.savefig(target_folder_cut * "uniform_cut_$(cut_level)_uz.png")
+            end
+            if length(Solution) > 1
+                scalarplot(xgrid_uni, CutSolution_P.entries, Plotter = Plotter; flimits = (Pmin,Pmax), title = "Polarisation on cut", fignumber = 1)
+                if isdefined(Plotter,:savefig)
+                    Plotter.savefig(target_folder_cut * "uniform_cut_$(cut_level)_P.png")
+                end
+            end
+            for k = 1 : 6
+                scalarplot(xgrid_uni, view(CutSolution_ϵu.entries,(k-1)*nnodes_uni+1:k*nnodes_uni), Plotter = Plotter; flimits = (ϵmin[k],ϵmax[k]), title = "ϵu[$k] on cut", fignumber = 1)
+                if isdefined(Plotter,:savefig)
+                    Plotter.savefig(target_folder_cut * "uniform_cut_$(cut_level)_ϵ$k.png")
+                end
+            end
+
+            ## revert displacing (for next cut)
+            displace_mesh!(xgrid, Solution[1]; magnify = -1)
+        end
     end
 end
 

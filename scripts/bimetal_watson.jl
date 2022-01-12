@@ -194,6 +194,45 @@ function get_lattice_mismatch_bimetal(avgc, geometry, lc)
     return a .* (1 .+ a./2), a
 end
 
+function export_cuts(; 
+    scale = [50, 50, 2000],
+    nrefs = 1,
+    mb = 0.5,
+    femorder = "max",
+    strainm = length(scale) == 3 ? NonlinearStrain3D : NonlinearStrain2D,
+    cut_levels = [scale[3] * 0.5],
+    Plotter = nothing)
+
+    @info "Exporting cuts..."
+
+    # load all data
+    alldata = collect_results(datadir(watson_datasubdir))
+
+    # filter and sort
+    df = filter(:scale => ==(scale), alldata)
+    df = filter(:nrefs => ==(nrefs), df)
+    df = filter(:mb => ==(mb), df)
+    df = filter(:strainm => ==(strainm), df)
+
+    if femorder == "max"
+        femorder = maximum(df[!,:femorder])
+    end
+    df = filter(:femorder => ==(femorder), df)
+    @show df
+
+    # compute curvature etc
+    for data in eachrow(df)
+        solution = data[:solution]
+        strainm = data[:strainm]
+        filename_cuts = savename(data, ""; allowedtypes = watson_allowedtypes, accesses = watson_accesses) * "_CUTS/"
+        mkpath(datadir(watson_datasubdir, filename_cuts))
+        plane_points = [[0.25*scale[1],0.25*scale[2]],[0.75*scale[1],0.25*scale[2]],[0.25*scale[1],0.75*scale[2]]] # = [X,Y] coordinates of the three points that define the cut plane
+        perform_simple_plane_cuts(datadir(watson_datasubdir, filename_cuts), solution, plane_points, cut_levels; eps_gfind = 1e-10, only_localsearch = true, strain_model = strainm, Plotter = Plotter)
+
+    end
+
+end
+
 function postprocess(; 
     scales = [[50, 2000], [100, 2000]],
     maxlc = [0.1, 0.2],
@@ -201,7 +240,6 @@ function postprocess(;
     mb = 0.5,
     femorder = "max",
     strainm = length(scales[1]) == 3 ? NonlinearStrain3D : NonlinearStrain2D,
-    cut_levels = [],
     Plotter = nothing)
 
     @assert Plotter !== nothing "need a Plotter (e.g. PyPlot)"
@@ -270,15 +308,6 @@ function postprocess(;
             push!(ana_angle, analytic_angle)
             push!(sim_curvature, curvature)
             push!(ana_curvature, analytic_curvature)
-
-            ## perform plane cuts
-            if length(scale) == 3 && length(cut_levels) > 0
-                strainm = data[:strainm]
-                filename_cuts = savename(data, ""; allowedtypes = watson_allowedtypes, accesses = watson_accesses) * "_CUTS/"
-                mkpath(datadir(watson_datasubdir, filename_cuts))
-                plane_points = [[0.25*scale[1],0.25*scale[2]],[0.75*scale[1],0.25*scale[2]],[0.25*scale[1],0.75*scale[2]]] # = [X,Y] coordinates of the three points that define the cut plane
-                perform_simple_plane_cuts(datadir(watson_datasubdir, filename_cuts), solution, plane_points, cut_levels; eps_gfind = 1e-10, only_localsearch = true, strain_model = strainm, cut_npoints = 100, vol_cut = 100, Plotter = Plotter)
-            end
         end
             
         @info "Plotting ..."

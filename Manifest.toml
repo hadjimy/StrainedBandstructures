@@ -228,9 +228,11 @@ version = "0.4.1"
 
 [[GradientRobustMultiPhysics]]
 deps = ["DiffResults", "DocStringExtensions", "ExtendableGrids", "ExtendableSparse", "ForwardDiff", "GridVisualize", "LinearAlgebra", "Logging", "Printf", "SparseArrays", "SparseDiffTools", "SparsityDetection", "StaticArrays", "SuiteSparse", "Test", "WriteVTK"]
-git-tree-sha1 = "bbd418b7417412ef37378051534614082d732585"
+git-tree-sha1 = "ed823c7c428d6fb8f1f9d0872d402fe62abf9168"
+repo-rev = "master"
+repo-url = "https://github.com/chmerdon/GradientRobustMultiPhysics.jl.git"
 uuid = "0802c0ca-1768-4022-988c-6dd5f9588a11"
-version = "0.7.16"
+version = "0.8.0"
 
 [[Graphs]]
 deps = ["ArnoldiMethod", "DataStructures", "Distributed", "Inflate", "LinearAlgebra", "Random", "SharedArrays", "SimpleTraits", "SparseArrays", "Statistics"]
