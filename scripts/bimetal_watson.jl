@@ -8,6 +8,8 @@ using Triangulate
 using GridVisualize
 using DrWatson
 using DataFrames
+using Pardiso
+using ExtendableSparse
 
 ## start with run_watson() --> result goto data directory
 ## postprocess data with postprocess(; Plotter = PyPlot) --> images go to plots directory
@@ -38,6 +40,7 @@ function run_watson(; dim = 2, force::Bool = false)
         "upscaling" => [1],                        # upscaling of results (does so many extra nrefs for plots)
         "nrefs" => [1],                            # number of uniform refinements before solve
         "avgc" => [2],                             # lattice number calculation method (average case)
+        "linsolver" => ExtendableSparse.MKLPardisoLU, # linear solver (try ExtendableSparse.MKLPardisoLU or ExtendableSparse.LUFactorization)
     )
 
     dicts = dict_list(allparams)
@@ -56,7 +59,7 @@ function get_defaults()
         "latfac" => 0.05,  # lattice factor between material A and B (lc = [5,5*(1+latfac)])
         "E" => [1e-6, 1e-6],                     # elastic moduli of material A and B
         "ν" => [0.15, 0.15],                     # Poisson numbers of material A and B
-        "scale" => [50,2000],       # dimensions of bimetal
+        "scale" => [50,2000],                    # dimensions of bimetal
         "full_nonlin" => true,                   # use complicated model (ignored if linear strain is used)
         "use_emb" => true,                       # use embedding (true) or damping (false) solver ?
         "nsteps" => 4,                           # number of embedding steps in embedding solver
@@ -67,15 +70,17 @@ function get_defaults()
         "upscaling" => 1,                        # upscaling of results (does so many extra nrefs for plots)
         "nrefs" => 1,                            # number of uniform refinements before solve
         "avgc" => 2,                             # lattice number calculation method (average case)
+        "linsolver" => ExtendableSparse.MKLPardisoLU, # linear solver (try ExtendableSparse.MKLPardisoLU or ExtendableSparse.LUFactorization)
     )
     dim = length(params["scale"])
     params["strainm"] = dim == 2 ? NonlinearStrain2D : NonlinearStrain3D
     return params
 end
-function set_params!(d,kwargs)
+function set_params!(d, kwargs)
     for (k,v) in kwargs
         d[String(k)]=v
     end
+    d["strainm"] = length(d["scale"]) == 2 ? NonlinearStrain2D : NonlinearStrain3D
     return nothing
 end
 
@@ -129,7 +134,7 @@ end
 function main(d::Dict; verbosity = 0)
 
     ## unpack paramers
-    @unpack latfac, E, ν, misfit_strain, α, full_nonlin, use_emb, nsteps, maxits, tres, scale, mb, femorder, nrefs, strainm, avgc = d
+    @unpack linsolver, latfac, E, ν, misfit_strain, α, full_nonlin, use_emb, nsteps, maxits, tres, scale, mb, femorder, nrefs, strainm, avgc = d
     
     ## set log level
     set_verbosity(verbosity)
@@ -164,10 +169,11 @@ function main(d::Dict; verbosity = 0)
 
     ## solve system with FEM
     if use_emb
-        Solution, residual = solve_by_embedding(Problem, xgrid, emb, nsteps = [nsteps], FETypes = [FEType], target_residual = [tres], maxiterations = [maxits])
+        Solution, residual = solve_by_embedding(Problem, xgrid, emb, nsteps = [nsteps], 
+        linsolver = linsolver, FETypes = [FEType], target_residual = [tres], maxiterations = [maxits])
     else
         energy = get_energy_integrator(stress_tensor, strainm, α; dim = dim)
-        Solution, residual = solve_by_damping(Problem, xgrid, energy; FETypes = [FEType], target_residual = tres, maxiterations = maxits)
+        Solution, residual = solve_by_damping(Problem, xgrid, energy; FETypes = [FEType], linsolver = linsolver, target_residual = tres, maxiterations = maxits)
     end
 
     return Solution, residual
