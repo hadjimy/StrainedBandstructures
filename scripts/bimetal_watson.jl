@@ -22,7 +22,7 @@ watson_allowedtypes = (Real, String, Symbol, Array, DataType)
 watson_datasubdir = "bimetal_watson"
 
 
-function run_watson(; dim = 2, force::Bool = false)
+function run_watson(; dim = 2, force::Bool = false, generate_vtk = true)
 
     allparams = Dict(
         "latfac" => Array{Float64,1}(0:0.02:0.2),  # lattice factor between material A and B (lc = [5,5*(1+latfac)])
@@ -37,7 +37,7 @@ function run_watson(; dim = 2, force::Bool = false)
         "scale" => dim == 2 ? [[50,2000], [100, 2000]] : [[50,50,2000], [100,100,2000]],       # dimensions of bimetal
         "mb" => [0.5],                             # share of material A vs. material B
         "femorder" => [2],                         # order of the finite element discretisation
-        "upscaling" => [1],                        # upscaling of results (does so many extra nrefs for plots)
+        "upscaling" => [0],                        # upscaling of results (does so many extra nrefs for plots)
         "nrefs" => [1],                            # number of uniform refinements before solve
         "avgc" => [2],                             # lattice number calculation method (average case)
         "linsolver" => ExtendableSparse.MKLPardisoLU, # linear solver (try ExtendableSparse.MKLPardisoLU or ExtendableSparse.LUFactorization)
@@ -48,7 +48,7 @@ function run_watson(; dim = 2, force::Bool = false)
 
     # run the simulations and save data
     for (i, d) in enumerate(dicts)
-        run_single(d; force = force)
+        run_single(d; force = force, generate_vtk = generate_vtk)
     end
 end
 
@@ -67,7 +67,7 @@ function get_defaults()
         "tres" => 1e-12,                         # target residual in each embedding step
         "mb" => 0.5,                             # share of material A vs. material B
         "femorder" => 2,                         # order of the finite element discretisation
-        "upscaling" => 1,                        # upscaling of results (does so many extra nrefs for plots)
+        "upscaling" => 0,                        # upscaling of results (does so many extra nrefs for plots)
         "nrefs" => 1,                            # number of uniform refinements before solve
         "avgc" => 2,                             # lattice number calculation method (average case)
         "linsolver" => ExtendableSparse.MKLPardisoLU, # linear solver (try ExtendableSparse.MKLPardisoLU or ExtendableSparse.LUFactorization)
@@ -84,15 +84,19 @@ function set_params!(d, kwargs)
     return nothing
 end
 
-
-
-function run_single(d = nothing; force::Bool = false, kwargs...)
-
+function get_data(d = nothing; kwargs...)
     ## load parameter set
     if d === nothing
         d = get_defaults()
         set_params!(d, kwargs)
     end
+    return d
+end
+
+
+function run_single(d = nothing; force::Bool = false, generate_vtk = true, kwargs...)
+
+    d = get_data(d; kwargs)
 
     filename = savename(d, "jld2"; allowedtypes = watson_allowedtypes, accesses = watson_accesses)
     if isfile(datadir(watson_datasubdir, filename)) && !force
@@ -123,9 +127,9 @@ function run_single(d = nothing; force::Bool = false, kwargs...)
     ## save data to file
     wsave(datadir(watson_datasubdir, filename), fulld)
 
-    ## export data to VTK
-    filename_vtk = savename(d, ""; allowedtypes = watson_allowedtypes, accesses = watson_accesses)
-    writeVTK(datadir(watson_datasubdir, filename_vtk), solution[1]; upscaling = fulld["upscaling"], strain_model = fulld["strainm"])
+    if generate_vtk
+        export_vtk(fulld; upscaling = fulld["upscaling"], kwargs...)
+    end
 
     return fulld
 end
@@ -200,9 +204,29 @@ function get_lattice_mismatch_bimetal(avgc, geometry, lc)
     return a .* (1 .+ a./2), a
 end
 
+
+## load a result dictionary (to browse results in julia)
+function load_data(d = nothing; kwargs...)
+    ## complete parameter set
+    d = get_data(d; kwargs)
+
+    # load dict from file
+    filename = savename(d, "jld2"; allowedtypes = watson_allowedtypes, accesses = watson_accesses)
+    d = wload(datadir(watson_datasubdir, filename))
+    return d
+end
+
+function export_vtk(d = nothing; upscaling = 0, kwargs...)
+    d = load_data(d; kwargs)
+    filename_vtk = savename(d, ""; allowedtypes = watson_allowedtypes, accesses = watson_accesses)
+    writeVTK(datadir(watson_datasubdir, filename_vtk), d["solution"][1]; upscaling = upscaling, strain_model = d["strainm"])
+end
+
 function export_cuts(; 
     scale = [50, 50, 2000],
     nrefs = 1,
+    upscaling = 0,
+    eps_gfind = 1e-11,
     mb = 0.5,
     femorder = "max",
     strainm = length(scale) == 3 ? NonlinearStrain3D : NonlinearStrain2D,
@@ -223,20 +247,43 @@ function export_cuts(;
     if femorder == "max"
         femorder = maximum(df[!,:femorder])
     end
+    if upscaling == "auto"
+        upscaling::Int = femorder > 1
+    end
+
     df = filter(:femorder => ==(femorder), df)
     @show df
 
-    # compute curvature etc
+    # compute cuts
     for data in eachrow(df)
         solution = data[:solution]
         strainm = data[:strainm]
+
+        xgrid_plot = solution[1].FES.xgrid
+        Solution_plot = nothing
+        if upscaling > 0
+            xgrid_plot = uniform_refine(xgrid_plot, upscaling; store_parents = true)
+            if length(solution) == 1
+                FES = FESpace{H1P1{3}}(xgrid_plot)
+                #wip# FES = FESpace{eltype(solution[1].FES)}(xgrid_plot)
+                Solution_plot = FEVector{Float64}("u_h (upscale)", FES)
+            else
+                FES = [FESpace{H1P1{3}}(xgrid_plot), FESpace{H1P1{1}}(xgrid_plot)]
+                #wip# FES = [FESpace{eltype(solution[1].FES)}(xgrid_plot), FESpace{eltype(solution[2].FES)}(xgrid_plot)]
+                Solution_plot = FEVector{Float64}(["u_h (upscale)", "V_P (upscale)"],[FES[1], FES[2]])
+            end
+            for j = 1 : length(solution)
+                interpolate!(Solution_plot[j], solution[j]; use_cellparents = true, eps = eps_gfind)
+            end
+        else
+            Solution_plot = solution
+        end
+
         filename_cuts = savename(data, ""; allowedtypes = watson_allowedtypes, accesses = watson_accesses) * "_CUTS/"
         mkpath(datadir(watson_datasubdir, filename_cuts))
         plane_points = [[0.25*scale[1],0.25*scale[2]],[0.75*scale[1],0.25*scale[2]],[0.25*scale[1],0.75*scale[2]]] # = [X,Y] coordinates of the three points that define the cut plane
-        perform_simple_plane_cuts(datadir(watson_datasubdir, filename_cuts), solution, plane_points, cut_levels; eps_gfind = 1e-10, only_localsearch = true, strain_model = strainm, Plotter = Plotter)
-
+        perform_simple_plane_cuts(datadir(watson_datasubdir, filename_cuts), Solution_plot, plane_points, cut_levels; eps_gfind = 1e-10, only_localsearch = true, strain_model = strainm, Plotter = Plotter)
     end
-
 end
 
 function postprocess(; 
