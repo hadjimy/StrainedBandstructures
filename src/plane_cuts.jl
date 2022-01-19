@@ -282,7 +282,7 @@ function perform_simple_plane_cuts(target_folder_cut, Solution, plane_points, cu
     end
 
     ## these are the levels that have faces
-    @show sort(unique(z4Faces))
+    @info "possible z-levels for cut = $(sort(unique(z4Faces))[2:end])"
 
     ## find three points on the plane z = cut_level and evaluate displacement at points of plane
     xref = [zeros(Float64,3),zeros(Float64,3),zeros(Float64,3)]
@@ -321,7 +321,7 @@ function perform_simple_plane_cuts(target_folder_cut, Solution, plane_points, cu
         start_cell::Int = xFaceCells[1,faces4level[1]]
 
         ## define plane equation coefficients and rotation to map 3D coordinates on cut plane to 2D coordinates
-        
+
         # 1:3 = normal vector
         #   4 = - normal vector ⋅ point on plane
         # find normal vector of displaced plane defined by the three points x[1], x[2] and x[3] 
@@ -385,7 +385,7 @@ function perform_simple_plane_cuts(target_folder_cut, Solution, plane_points, cu
         cut_grid[Coordinates] = xCoordinatesCut3D
         cut_grid[CellNodes] = node_permute[xFaceNodes[:,faces4level]] # view not possible here
         cut_grid[CellGeometries] = VectorOfConstants(Triangle2D,length(faces4level));
-        cut_grid[CellRegions] = ones(Int32,length(faces4level))
+        cut_grid[CellRegions] = xgrid[CellRegions][xgrid[FaceCells][1,faces4level]]
         cut_grid[CoordinateSystem] = Cartesian2D
         cut_grid[BFaceRegions] = ones(Int32,1)
         cut_grid[BFaceNodes] = zeros(Int32,2,0)
@@ -396,42 +396,43 @@ function perform_simple_plane_cuts(target_folder_cut, Solution, plane_points, cu
         FES2D = FESpace{H1P1{3}}(cut_grid)
         FES2D_∇u = FESpace{H1P1{9}}(cut_grid)
         FES2D_ϵu = FESpace{H1P1{6}}(cut_grid)
-        CutSolution_u = FEVector{Float64}("u (on 2D cut at z = $(cut_level))", FES2D)
-        CutSolution_∇u = FEVector{Float64}("∇u (on 2D cut at z = $(cut_level))", FES2D_∇u)
-        CutSolution_ϵu = FEVector{Float64}("ϵ(u) (on 2D cut at z = $(cut_level))", FES2D_ϵu)
+        SimpleCutSolution_u = FEVector{Float64}("u (on 2D cut at z = $(cut_level))", FES2D)
+        SimpleCutSolution_∇u = FEVector{Float64}("∇u (on 2D cut at z = $(cut_level))", FES2D_∇u)
+        SimpleCutSolution_ϵu = FEVector{Float64}("ϵ(u) (on 2D cut at z = $(cut_level))", FES2D_ϵu)
         
         ## calculate strain from gradient interpolation on cut
         for j = 1 : nnodes_cut
             for k = 1 : 3
-                CutSolution_u.entries[(k-1)*nnodes_cut + j] = nodevals[k][nodes4level[j]]
+                SimpleCutSolution_u.entries[(k-1)*nnodes_cut + j] = nodevals[k][nodes4level[j]]
             end
             for k = 1 : 9 
-                CutSolution_∇u.entries[(k-1)*nnodes_cut + j] = nodevals_gradient[k,nodes4level[j]]
+                SimpleCutSolution_∇u.entries[(k-1)*nnodes_cut + j] = nodevals_gradient[k,nodes4level[j]]
                 eval_strain!(strain,view(nodevals_gradient,:,nodes4level[j]), strain_model)
                 for k = 1 : 6
-                    CutSolution_ϵu.entries[(k-1)*nnodes_cut + j] = strain[k]
+                    SimpleCutSolution_ϵu.entries[(k-1)*nnodes_cut + j] = strain[k]
                 end
             end
         end
 
+        ## 2D coordinates of the simple grid
+        cut_grid2D = deepcopy(cut_grid)
+        xCoordinatesCutPlane = zeros(Float64,2,nnodes_cut)
+        for j = 1 : nnodes_cut
+            ## displaced nodes moved to plane
+            for n = 1 : 2, k = 1 : 3
+                xCoordinatesCutPlane[n,j] += R[n,k] * (xCoordinatesCut3D[k,j])
+            end
+        end
+        cut_grid2D[Coordinates] = xCoordinatesCutPlane
+        CF2D = CellFinder(cut_grid2D)
+
         ## write data into csv file
         @info "Exporting cut data for cut_level = $(cut_level)..."
-        writeVTK!(target_folder_cut * "simple_cut_$(cut_level)_data.vtu", [CutSolution_u[1], CutSolution_∇u[1], CutSolution_ϵu[1]]; operators = [Identity, Identity, Identity])
+        writeVTK!(target_folder_cut * "simple_cut_$(cut_level)_data.vtu", [SimpleCutSolution_u[1], SimpleCutSolution_∇u[1], SimpleCutSolution_ϵu[1]]; operators = [Identity, Identity, Identity], add_regions = true)
 
         if do_simplecut_plots
             @info "Plotting data on simple cut grid..."
-            cut_grid2D = deepcopy(cut_grid)
-
-            xCoordinatesCutPlane = zeros(Float64,2,nnodes_cut)
-            for j = 1 : nnodes_cut
-                ## displaced nodes moved to plane
-                for n = 1 : 2, k = 1 : 3
-                    xCoordinatesCutPlane[n,j] += R[n,k] * (xCoordinatesCut3D[k,j])
-                end
-            end
-
-            cut_grid2D[Coordinates] = xCoordinatesCutPlane
-            nodevals_cut = nodevalues_view(CutSolution_u[1])
+            nodevals_cut = nodevalues_view(SimpleCutSolution_u[1])
             labels = ["ux","uy","uz"]
             for j = 1 : 3
                 scalarplot(cut_grid2D, nodevals_cut[j], Plotter = Plotter; title = "$(labels[j]) on cut", fignumber = 1)
@@ -440,7 +441,7 @@ function perform_simple_plane_cuts(target_folder_cut, Solution, plane_points, cu
                 end
             end
             for k = 1 : 6
-                scalarplot(cut_grid2D, view(CutSolution_ϵu.entries,(k-1)*nnodes_cut+1:k*nnodes_cut), Plotter = Plotter; title = "ϵu[$k] on cut", fignumber = 1)
+                scalarplot(cut_grid2D, view(SimpleCutSolution_ϵu.entries,(k-1)*nnodes_cut+1:k*nnodes_cut), Plotter = Plotter; title = "ϵu[$k] on cut", fignumber = 1)
                 if isdefined(Plotter,:savefig)
                     Plotter.savefig(target_folder_cut * "simple_cut_$(cut_level)_ϵ$k.png")
                 end
@@ -480,19 +481,37 @@ function perform_simple_plane_cuts(target_folder_cut, Solution, plane_points, cu
             xmax = maximum(view(xCoordinatesCutPlane,1,:))
             ymin = minimum(view(xCoordinatesCutPlane,2,:))
             ymax = maximum(view(xCoordinatesCutPlane,2,:))
-            @info "Creating uniform grid for bounding box ($xmin,$xmax) x ($ymin,$ymax)"
             h_uni = [xmax - xmin,ymax - ymin] ./ (cut_npoints-1)
-            xgrid_uni = simplexgrid(collect(0:h_uni[1]:xmax-xmin),collect(0:h_uni[2]:ymax-ymin))
+            Xuni = zeros(Float64,0)
+            Yuni = zeros(Float64,0)
+            for j = 0 : cut_npoints - 1
+                push!(Xuni, h_uni[1]*j)
+                push!(Yuni, h_uni[2]*j)
+            end
+            @info "Creating uniform grid with h_uni = $h_uni for bounding box ($xmin,$xmax) x ($ymin,$ymax)"
+            xgrid_uni = simplexgrid(Xuni,Yuni)
+            xCoordinatesUni = xgrid_uni[Coordinates]
+            nnodes_uni = size(xCoordinatesUni,2)
             
             # mapping from 3D coordinates on cut_grid to 2D coordinates on xgrid_uni
             invR::Matrix{Float64} = inv(R)
             function xtrafo!(x3D,x2D)
                 for j = 1 : 3
-                    x3D[j] = invR[j,1] * (x2D[1] + xmin) + invR[j,2] * (x2D[2] + ymin) + invR[j,3] * z  # invR * [x2D[1],x2D[2],z]
+                    x3D[j] = invR[j,1] * (x2D[1] - xmin) + invR[j,2] * (x2D[2] - ymin) + invR[j,3] * z  # invR * [x2D[1],x2D[2],z]
                 end
                 return nothing
             end
 
+            ## remap simpple grid functions to 2d grid
+            FES2D_simple = FESpace{H1P1{3}}(cut_grid2D)
+            FES2D_simple_∇u = FESpace{H1P1{9}}(cut_grid2D)
+            FES2D_simple_ϵu = FESpace{H1P1{6}}(cut_grid2D)
+            SimpleCut2DSolution_u = FEVector{Float64}("u (on 2D cut at z = $(cut_level))", FES2D_simple)
+            SimpleCut2DSolution_∇u = FEVector{Float64}("∇u (on 2D cut at z = $(cut_level))", FES2D_simple_∇u)
+            SimpleCut2DSolution_ϵu = FEVector{Float64}("ϵ(u) (on 2D cut at z = $(cut_level))", FES2D_simple_ϵu)
+            SimpleCut2DSolution_u.entries .= SimpleCutSolution_u.entries
+            SimpleCut2DSolution_∇u.entries .= SimpleCutSolution_∇u.entries
+            SimpleCut2DSolution_ϵu.entries .= SimpleCutSolution_ϵu.entries
 
             ## interpolate data on uniform cut_grid
             @info "Interpolating data on uniform cut mesh..."
@@ -504,48 +523,77 @@ function perform_simple_plane_cuts(target_folder_cut, Solution, plane_points, cu
             CutSolution_∇u = FEVector{Float64}("∇u (on 2D cut at z = $(cut_level))", FES2D_∇u)
             CutSolution_ϵu = FEVector{Float64}("ϵ(u) (on 2D cut at z = $(cut_level))", FES2D_ϵ)
             CutSolution_P = FEVector{Float64}("P (on 2D cut at z = $(cut_level))", FES2D_P)
-            @time interpolate!(CutSolution_u[1], Solution[1]; xtrafo = xtrafo!, start_cell = start_cell, not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
-            @time interpolate!(CutSolution_∇u[1], GlobalInterpolation_∇u[1]; operator = Identity, xtrafo = xtrafo!, start_cell = start_cell, not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
-            
-            ## calculate strain from gradient interpolation on cut
-            nodevals_cut = nodevalues(CutSolution_∇u[1], Identity)
-            strain = zeros(Float64,6)
-            nnodes_cut = size(nodevals_cut,2)
-            for j = 1 : nnodes_cut
-                if nodevals_cut[1,j] == NaN
-                    for k = 1 : 6
-                        CutSolution_ϵu.entries[(k-1)*nnodes_cut+j] = NaN
-                    end
-                else
-                    eval_strain!(strain,view(nodevals_cut,:,j), strain_model)
-                    for k = 1 : 6
-                        CutSolution_ϵu.entries[(k-1)*nnodes_cut+j] = strain[k]
-                    end
-                end
-            end
-            if length(Solution) > 1
-                @time interpolate!(CutSolution_P[1], Solution[2]; xtrafo = xtrafo!, start_cell = start_cell, not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
+            #@time interpolate!(CutSolution_u[1], Solution[1]; xtrafo = xtrafo!, start_cell = start_cell, not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
+            #@time interpolate!(CutSolution_∇u[1], GlobalInterpolation_∇u[1]; operator = Identity, xtrafo = xtrafo!, start_cell = start_cell, not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
+
+            function xtrafo2!(x2D_out,x2D_in)
+                x2D_out[1] = x2D_in[1] + xmin
+                x2D_out[2] = x2D_in[2] + ymin
+                return nothing
             end
 
-            ## write data into vtk file
-            @info "Writing data into vtk file..."
-            writeVTK!(target_folder_cut * "uniform_cut_$(cut_level)_data.vtu", [CutSolution_u[1],CutSolution_∇u[1],CutSolution_ϵu[1],CutSolution_P[1]]; operators = [Identity, Identity, Identity, Identity])
-           
+            interpolate!(CutSolution_u[1], SimpleCut2DSolution_u[1]; xtrafo = xtrafo2!, not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
+            interpolate!(CutSolution_∇u[1], SimpleCut2DSolution_∇u[1]; xtrafo = xtrafo2!, not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
+            interpolate!(CutSolution_ϵu[1], SimpleCut2DSolution_ϵu[1]; xtrafo = xtrafo2!, not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
+            
+            # ## calculate strain from gradient interpolation on cut
+            # nodevals_cut = nodevalues(CutSolution_∇u[1], Identity)
+            # strain = zeros(Float64,6)
+            # nnodes_cut = size(nodevals_cut,2)
+            # for j = 1 : nnodes_cut
+            #     if nodevals_cut[1,j] == NaN
+            #         for k = 1 : 6
+            #             CutSolution_ϵu.entries[(k-1)*nnodes_cut+j] = NaN
+            #         end
+            #     else
+            #         eval_strain!(strain,view(nodevals_cut,:,j), strain_model)
+            #         for k = 1 : 6
+            #             CutSolution_ϵu.entries[(k-1)*nnodes_cut+j] = strain[k]
+            #         end
+            #     end
+            # end
+            if length(Solution) > 1
+               # @time interpolate!(CutSolution_P[1], Solution[2]; xtrafo = xtrafo!, start_cell = start_cell, not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
+               #interpolate!(CutSolution_ϵu[1], SimpleCutSolution_ϵu[1]; not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
+            end
+
             ## write material map into txt files
             @info "Writing material map file..."
             filename_material = target_folder_cut * "uniform_cut_$(cut_level)_materialmap.txt"
             io = open(filename_material, "w")
-            xCoordinatesUni = xgrid_uni[Coordinates]
+            xCellNodesUni = xgrid_uni[CellNodes]
             nnodes_uni = size(xCoordinatesUni,2)
             xdim = size(xCoordinatesUni,1)
             @printf(io, "WIRE STRESSOR OUTSIDE X Y\n")
             cell::Int = 0
             region::Int = 0
             x3D = zeros(Float64,3)
+            xCellRegionsUniform = zeros(Int32,num_cells(xgrid_uni))
+            xCellRegionsSimpleCut = cut_grid[CellRegions]
+
+            xtest = zeros(Float64,2)
+            for cu = 1 : num_cells(xgrid_uni)
+                ## compute center
+                fill!(xtest,0)
+                for j = 1 : 2, n = 1 : 3
+                    xtest[j] += xCoordinatesUni[j, xCellNodesUni[n,cu]]
+                end
+                xtest ./= 3.0
+                xtest[1] += xmin
+                xtest[2] += ymin
+                cell = gFindLocal!(xref[1], CF2D, xtest; eps = eps_gfind)
+                xCellRegionsUniform[cu] = cell == 0 ? 0 : xCellRegionsSimpleCut[cell]
+            end
+            xgrid_uni[CellRegions] = xCellRegionsUniform
+
             for n = 1 : nnodes_uni
-                xtrafo!(x3D,view(xCoordinatesUni,:,n))
-                cell = gFindLocal!(xref[1], CF, x3D; icellstart = start_cell, eps = eps_gfind)
-                region = cell == 0 ? 0 : xCellRegions[cell]
+                for j = 1 : 2
+                    xtest[j] = xCoordinatesUni[j,n]
+                end
+                xtest[1] += xmin
+                xtest[2] += ymin
+                cell = gFindLocal!(xref[1], CF2D, xtest; eps = eps_gfind)
+                region = cell == 0 ? 0 : xCellRegionsSimpleCut[cell]
                 if region == 1
                     @printf(io, "1 0 0 ")
                 elseif region == 2
@@ -559,6 +607,11 @@ function perform_simple_plane_cuts(target_folder_cut, Solution, plane_points, cu
                 @printf(io, "\n")
             end
             close(io)
+
+            ## write data into vtk file
+            @info "Writing data into vtk file..."
+            writeVTK!(target_folder_cut * "uniform_cut_$(cut_level)_data.vtu", [CutSolution_u[1],CutSolution_∇u[1],CutSolution_ϵu[1],CutSolution_P[1]]; operators = [Identity, Identity, Identity, Identity], add_regions = true)
+           
 
             ## write material map into txt files
             component_names = ["eXX","eYY","eZZ","eYZ","eXZ","eXY"]
