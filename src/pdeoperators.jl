@@ -14,7 +14,7 @@ function get_displacement_operator(
                                 # (overwrite with your array to use with embedding solver)
     regions = [0],              # regions where the operator integrates
     store = Threads.nthreads() > 1,  # separate storage for operator (allows parallel assembly, but only reasonable if nthreads() > 1)
-    quadorder = 2)              # quadrature order
+    bonus_quadorder = 2)        # quadrature order
 
     cache_offset::Int = dim^2
     uncompress_voigt! = (dim == 2) ? uncompress_voigt2D! : uncompress_voigt3D!
@@ -47,14 +47,14 @@ function get_displacement_operator(
 
         return nothing
     end
-    return NonlinearForm([Gradient],                                    # operators for ansatz function
+    return NonlinearForm(Gradient,                                      # operator for test function
+                         [Gradient],                                    # operators for ansatz function
                          [displacement_id],                             # unknown_ids for ansatz function
-                         Gradient,                                      # operator for test function
                          nonlinear_operator_kernel!,                    # kernel function (above)
                          [dim^2, dim^2, Int(dim^2+dim*(dim+1)/2)];      # argument sizes for kernel function result and input and cache
                          name = "(I + emb*∇u)C(ϵ(u)-ϵ0) : ∇v) $(store ? "[stored]" : "")",         # name for print-outs
                          regions = regions,                             # regions where nonlinearform intergrates
-                         quadorder = quadorder,                         # quadrature order
+                         bonus_quadorder = bonus_quadorder,             # quadrature order
                          store = store,
                          newton = true)                                 # activate Newton derivatives (false won't work here)
 end
@@ -88,7 +88,7 @@ function get_polarisation_from_strain_operator(
 
         return nothing
     end
-    polarisation_action = Action(closure, [dim,dim^2]; dependencies = "", quadorder = quadorder)
+    polarisation_action = Action(closure, [dim,dim^2]; dependencies = "", bonus_quadorder = quadorder)
     return BilinearForm( [Gradient,Gradient],
                          polarisation_action;
                          name = "-E (ϵ(u) - ϵ0) ⋅ ∇(Q)",
@@ -128,10 +128,10 @@ function get_polarisation_laplacian_operator(;
 
         return nothing
     end
-    potential_action = Action(closure, [dim, dim^2+dim]; dependencies = "", quadorder = quadorder)
-    return TrilinearForm( [Gradient,Gradient,Gradient],
-                          displacement_id,
-                          1,
+    potential_action = Action(closure, [dim, dim^2+dim]; dependencies = "", bonus_quadorder = quadorder)
+    return BilinearForm( [Gradient,Gradient],
+                         [Gradient],
+                         [displacement_id],
                           potential_action;
                           name = "-κ det(F) inv(FF^T) ∇(V_P) ⋅ ∇(Q)",
                           factor = κ,
@@ -189,8 +189,8 @@ function get_energy_integrator(
 
         return nothing  
     end
-    energy_action = Action{Float64}(energy_kernel, [1,dim^2]; name = "stored energy", dependencies = "R", quadorder = quadorder)
-    return ItemIntegrator(Float64, ON_CELLS, [Gradient], energy_action; regions = regions)
+    energy_action = Action{Float64}(energy_kernel, [1,dim^2]; name = "stored energy", dependencies = "R", bonus_quadorder = quadorder)
+    return ItemIntegrator([Gradient], energy_action; regions = regions)
 end
 
 
@@ -244,14 +244,14 @@ function get_polarisation_operator(
 
         return nothing
     end
-    return NonlinearForm([Gradient, Gradient],                      # operators for ansatz function
+    return NonlinearForm(Gradient,                                  # operator for test function
+                         [Gradient, Gradient],                      # operators for ansatz function
                          [displacement_id, polarisation_id],        # unknown_ids for ansatz function
-                         Gradient,                                  # operator for test function
                          nonlinear_operator_kernel!,                # kernel function (above)
                          [dim, dim^2+dim, Int(dim^2+dim+dim*(dim+1)/2)];          # argument sizes for kernel function result and input and cache
                          name = "(E ϵ(u) - κ det(F) inv(FF^T) ∇V_P) : ∇W_P",     # name for print-outs
                          regions = regions,                         # regions where nonlinearform intergrates
-                         quadorder = quadorder,                     # quadrature order
+                         bonus_quadorder = quadorder,                     # quadrature order
                          newton = true)                             # activate Newton derivatives (false won't work here)
 end
 

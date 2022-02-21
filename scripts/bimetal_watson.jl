@@ -76,8 +76,9 @@ function get_defaults()
     params["strainm"] = dim == 2 ? NonlinearStrain2D : NonlinearStrain3D
     return params
 end
-function set_params!(d, kwargs)
+function set_params!(d; kwargs)
     for (k,v) in kwargs
+        @info "setting $((k,v))"
         d[String(k)]=v
     end
     d["strainm"] = length(d["scale"]) == 2 ? NonlinearStrain2D : NonlinearStrain3D
@@ -88,7 +89,7 @@ function get_data(d = nothing; kwargs...)
     ## load parameter set
     if d === nothing
         d = get_defaults()
-        set_params!(d, kwargs)
+        set_params!(d; kwargs...)
     end
     return d
 end
@@ -97,6 +98,7 @@ end
 function run_single(d = nothing; force::Bool = false, generate_vtk = true, kwargs...)
 
     d = get_data(d; kwargs)
+    @show d
 
     filename = savename(d, "jld2"; allowedtypes = watson_allowedtypes, accesses = watson_accesses)
     if isfile(datadir(watson_datasubdir, filename)) && !force
@@ -166,8 +168,8 @@ function main(d::Dict; verbosity = 0)
     ## generate problem description
     Problem = PDEDescription("bimetal deformation under misfit strain")
     add_unknown!(Problem; unknown_name = "u", equation_name = "displacement equation")
-    add_operator!(Problem, 1, get_displacement_operator(IsotropicElasticityTensor(λ[1], μ[1], dim), strainm, misfit_strain[1], α[1]; dim = dim, emb = emb, regions = [1], quadorder = 2*(femorder-1)))
-    add_operator!(Problem, 1, get_displacement_operator(IsotropicElasticityTensor(λ[2], μ[2], dim), strainm, misfit_strain[2], α[2]; dim = dim, emb = emb, regions = [2], quadorder = 2*(femorder-1)))
+    add_operator!(Problem, 1, get_displacement_operator(IsotropicElasticityTensor(λ[1], μ[1], dim), strainm, misfit_strain[1], α[1]; dim = dim, emb = emb, regions = [1], bonus_quadorder = 2*(femorder-1)))
+    add_operator!(Problem, 1, get_displacement_operator(IsotropicElasticityTensor(λ[2], μ[2], dim), strainm, misfit_strain[2], α[2]; dim = dim, emb = emb, regions = [2], bonus_quadorder = 2*(femorder-1)))
     add_boundarydata!(Problem, 1, [1], HomogeneousDirichletBoundary)
     @show Problem
 
@@ -219,7 +221,9 @@ end
 function export_vtk(d = nothing; upscaling = 0, kwargs...)
     d = load_data(d; kwargs)
     filename_vtk = savename(d, ""; allowedtypes = watson_allowedtypes, accesses = watson_accesses)
-    writeVTK(datadir(watson_datasubdir, filename_vtk), d["solution"][1]; upscaling = upscaling, strain_model = d["strainm"])
+    solution = d["solution"]
+    repair_grid!(solution[1].FES.xgrid)
+    writeVTK(datadir(watson_datasubdir, filename_vtk), solution[1]; upscaling = upscaling, strain_model = d["strainm"])
 end
 
 function export_cuts(; 
@@ -259,17 +263,17 @@ function export_cuts(;
         solution = data[:solution]
         strainm = data[:strainm]
 
+        repair_grid!(solution[1].FES.xgrid)
         xgrid_plot = solution[1].FES.xgrid
+        
         Solution_plot = nothing
         if upscaling > 0
             xgrid_plot = uniform_refine(xgrid_plot, upscaling; store_parents = true)
             if length(solution) == 1
-                FES = FESpace{H1P1{3}}(xgrid_plot)
-                #wip# FES = FESpace{eltype(solution[1].FES)}(xgrid_plot)
+                FES = FESpace{eltype(solution[1].FES)}(xgrid_plot)
                 Solution_plot = FEVector{Float64}("u_h (upscale)", FES)
             else
-                FES = [FESpace{H1P1{3}}(xgrid_plot), FESpace{H1P1{1}}(xgrid_plot)]
-                #wip# FES = [FESpace{eltype(solution[1].FES)}(xgrid_plot), FESpace{eltype(solution[2].FES)}(xgrid_plot)]
+                FES = [FESpace{eltype(solution[1].FES)}(xgrid_plot), FESpace{eltype(solution[2].FES)}(xgrid_plot)]
                 Solution_plot = FEVector{Float64}(["u_h (upscale)", "V_P (upscale)"],[FES[1], FES[2]])
             end
             for j = 1 : length(solution)

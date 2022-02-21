@@ -9,6 +9,21 @@ using TetGen
 using LinearAlgebra
 using Printf
 
+
+
+## problem: loading and saving grids leads to ElementGeometries -> DataType conversion (by DrWarson/JLD2?) which has to be reverted
+## after loading (until this is fixed ina more elegant way)
+function repair_grid!(xgrid::ExtendableGrid)
+    xgrid.components[CellGeometries] = VectorOfConstants{ElementGeometries,Int}(xgrid.components[CellGeometries][1], num_cells(xgrid)) 
+    xgrid.components[FaceGeometries] = VectorOfConstants{ElementGeometries,Int}(xgrid.components[FaceGeometries][1], length(xgrid.components[FaceGeometries])) 
+    xgrid.components[BFaceGeometries] = VectorOfConstants{ElementGeometries,Int}(xgrid.components[BFaceGeometries][1], length(xgrid.components[BFaceGeometries])) 
+
+    xgrid.components[UniqueCellGeometries] = Vector{ElementGeometries}([xgrid.components[CellGeometries][1]])
+    xgrid.components[UniqueFaceGeometries] = Vector{ElementGeometries}([xgrid.components[FaceGeometries][1]])
+    xgrid.components[UniqueBFaceGeometries] = Vector{ElementGeometries}([xgrid.components[BFaceGeometries][1]])
+end
+export repair_grid!
+
 include("grids.jl")
 export bimetal_strip3D, bimetal_strip2D
 export condensator3D, condensator2D

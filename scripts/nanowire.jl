@@ -162,7 +162,7 @@ function main(d = nothing; verbosity = 0, Plotter = nothing, force::Bool = false
         if fully_coupled
             # todo
         else
-            add_operator!(Problem, 1, get_displacement_operator(MD.TensorC[r], strainm, eps0[r][1], a[r]; dim = 3, emb = parameters, regions = [r], quadorder = quadorder_D)) 
+            add_operator!(Problem, 1, get_displacement_operator(MD.TensorC[r], strainm, eps0[r][1], a[r]; dim = 3, emb = parameters, regions = [r], bonus_quadorder = quadorder_D)) 
         end
     end
 
@@ -304,10 +304,11 @@ function postprocess(filename; Plotter = nothing, cut_levels = "auto", simple_cu
     # export vtk files
     @unpack polarisation, strainm = d
     filename_vtk = savename(d, ""; allowedtypes = watson_allowedtypes, accesses = watson_accesses)
+    repair_grid!(solution[1].FES.xgrid)
     if polarisation
-        writeVTK(datadir(watson_datasubdir, filename_vtk), solution[1], solution[2]; upscaling = upscaling, strain_model = strainm, eps_gfind = 1e-10)
+        NanoWiresJulia.writeVTK(datadir(watson_datasubdir, filename_vtk), solution[1], solution[2]; upscaling = upscaling, strain_model = strainm, eps_gfind = 1e-10)
     else
-        writeVTK(datadir(watson_datasubdir, filename_vtk), solution[1]; upscaling = upscaling, strain_model = strainm, eps_gfind = 1e-10)
+        NanoWiresJulia.writeVTK(datadir(watson_datasubdir, filename_vtk), solution[1]; upscaling = upscaling, strain_model = strainm, eps_gfind = 1e-10)
     end
 
     ## save again

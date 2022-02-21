@@ -116,8 +116,8 @@ function main(; ν = [0.3,0.3],                              # elastic numbers o
     ## generate problem description
     Problem = PDEDescription("bimetal deformation under misfit strain")
     add_unknown!(Problem; unknown_name = "u", equation_name = "displacement equation")
-    add_operator!(Problem, 1, get_displacement_operator(stress_tensor[1], strain_model, misfit_strain[1], α[1]; dim = dim, emb = emb, regions = [1], quadorder = 2*(femorder-1)))
-    add_operator!(Problem, 1, get_displacement_operator(stress_tensor[2], strain_model, misfit_strain[2], α[2]; dim = dim, emb = emb, regions = [2], quadorder = 2*(femorder-1)))
+    add_operator!(Problem, 1, get_displacement_operator(stress_tensor[1], strain_model, misfit_strain[1], α[1]; dim = dim, emb = emb, regions = [1], bonus_quadorder = 2*(femorder-1)))
+    add_operator!(Problem, 1, get_displacement_operator(stress_tensor[2], strain_model, misfit_strain[2], α[2]; dim = dim, emb = emb, regions = [2], bonus_quadorder = 2*(femorder-1)))
     add_boundarydata!(Problem, 1, [1], HomogeneousDirichletBoundary)
     @show Problem
 

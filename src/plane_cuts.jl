@@ -384,12 +384,12 @@ function perform_simple_plane_cuts(target_folder_cut, Solution, plane_points, cu
         cut_grid=ExtendableGrid{Float64,Int32}()
         cut_grid[Coordinates] = xCoordinatesCut3D
         cut_grid[CellNodes] = node_permute[xFaceNodes[:,faces4level]] # view not possible here
-        cut_grid[CellGeometries] = VectorOfConstants(Triangle2D,length(faces4level));
+        cut_grid[CellGeometries] = VectorOfConstants{ElementGeometries,Int}(Triangle2D,length(faces4level));
         cut_grid[CellRegions] = xgrid[CellRegions][xgrid[FaceCells][1,faces4level]]
         cut_grid[CoordinateSystem] = Cartesian2D
         cut_grid[BFaceRegions] = ones(Int32,1)
         cut_grid[BFaceNodes] = zeros(Int32,2,0)
-        cut_grid[BFaceGeometries] = VectorOfConstants(Edge1D, 0)
+        cut_grid[BFaceGeometries] = VectorOfConstants{ElementGeometries,Int}(Edge1D, 0)
 
         ## interpolate data on cut_grid
         @info "Interpolating data on cut mesh..."
