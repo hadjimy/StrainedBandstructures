@@ -12,6 +12,8 @@ using TetGen
 using DrWatson
 using DataFrames
 using Pardiso
+using PyPlot
+using GLMakie
 
 ## start with run_watson() --> result goto data directory
 ## postprocess data with postprocess(; Plotter = PyPlot) --> images go to plots directory
@@ -19,7 +21,7 @@ using Pardiso
 # configure Watson
 @quickactivate "NanoWiresJulia" # <- project name
 # set parameters that should be included in filename
-watson_accesses = ["geometry", "scenario", "shell_x", "stressor_x", "full_nonlin", "nrefs", "femorder", "femorder_P"] 
+watson_accesses = ["mstruct", "geometry", "scenario", "shell_x", "stressor_x", "full_nonlin", "nrefs", "femorder", "femorder_P"]
 watson_allowedtypes = (Real, String, Symbol, Array, DataType)
 watson_datasubdir = "nanowire"
 
@@ -35,7 +37,7 @@ function get_defaults()
         "nsteps" => 4,                          # number of embedding steps in embedding solver
         "maxits" => 10,                         # max number of iteration in each embedding step
         "tres" => 1e-12,                        # target residual in each embedding step
-        "geometry" => [30, 20, 15, 2000],       # dimensions of nanowire
+        "geometry" => [30., 20., 15., 2000.],       # dimensions of nanowire
         "scenario" => 1,                        # scenario number that fixes materials for core/shell/stressor
         "mb" => 0.5,                            # share of material A vs. material B
         "mstruct" => ZincBlende001,             # material structure type
@@ -140,8 +142,14 @@ function main(d = nothing; verbosity = 0, Plotter = nothing, force::Bool = false
     ##              regions [1,2,3] = [core, shell, stressor]
     ##      boundaryregions [1,2,3] = [core front, shell boundary, stressor boundary]
     gridfile = "grids/nanowire-grid($(geometry[1]),$(geometry[2]),$(geometry[3]),$(geometry[4])).sg" # default: gridfile = "nanowire-grid(30,20,15,2000).sg"
-    xgrid = simplexgrid(gridfile)
-    xgrid = uniform_refine(xgrid,nrefs)
+    #xgrid = simplexgrid(gridfile)
+    #geometry[1] /= 2
+    #geometry[2] /= 2
+    #geometry[3] = 6.5
+    #xgrid = nanowire_grid(; scale = geometry)
+    xgrid = nanowire_grid2D(; scale = geometry)
+    gridplot(xgrid; Plotter=PyPlot)
+    #xgrid = uniform_refine(xgrid,nrefs)
     @show xgrid
 
 
