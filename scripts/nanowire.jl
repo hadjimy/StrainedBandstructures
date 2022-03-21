@@ -12,8 +12,6 @@ using TetGen
 using DrWatson
 using DataFrames
 using Pardiso
-using PyPlot
-using GLMakie
 
 ## start with run_watson() --> result goto data directory
 ## postprocess data with postprocess(; Plotter = PyPlot) --> images go to plots directory
@@ -37,7 +35,7 @@ function get_defaults()
         "nsteps" => 4,                          # number of embedding steps in embedding solver
         "maxits" => 10,                         # max number of iteration in each embedding step
         "tres" => 1e-12,                        # target residual in each embedding step
-        "geometry" => [30., 20., 15., 2000.],       # dimensions of nanowire
+        "geometry" => [30, 20, 15, 2000],       # dimensions of nanowire
         "scenario" => 1,                        # scenario number that fixes materials for core/shell/stressor
         "mb" => 0.5,                            # share of material A vs. material B
         "mstruct" => ZincBlende001,             # material structure type
@@ -53,7 +51,7 @@ function get_defaults()
     return params
 end
 
-function set_params!(d,kwargs)
+function set_params!(d; kwargs)
     for (k,v) in kwargs
         d[String(k)]=v
     end
@@ -76,12 +74,12 @@ end
 # call this function for the full nanowire scenario
 # default parameters (see above) can be modified by kwargs
 # Plotter is used for postprocessing
-function main(d = nothing; verbosity = 0, Plotter = nothing, force::Bool = false, kwargs...)
+function main(d = nothing; verbosity = 0, Plotter = nothing, force::Bool = false, old_grid = false, kwargs...)
 
     ## load parameter set
     if d === nothing
         d = get_defaults()
-        set_params!(d, kwargs)
+        set_params!(d; kwargs)
     end
 
     println("***Solving nanowire problem***")
@@ -141,15 +139,20 @@ function main(d = nothing; verbosity = 0, Plotter = nothing, force::Bool = false
     ## load mesh, expecting the following regions
     ##              regions [1,2,3] = [core, shell, stressor]
     ##      boundaryregions [1,2,3] = [core front, shell boundary, stressor boundary]
-    gridfile = "grids/nanowire-grid($(geometry[1]),$(geometry[2]),$(geometry[3]),$(geometry[4])).sg" # default: gridfile = "nanowire-grid(30,20,15,2000).sg"
-    #xgrid = simplexgrid(gridfile)
-    #geometry[1] /= 2
-    #geometry[2] /= 2
-    #geometry[3] = 6.5
+    if old_grid
+        gridfile = "grids/nanowire-grid($(geometry[1]),$(geometry[2]),$(geometry[3]),$(geometry[4])).sg" # default: gridfile = "nanowire-grid(30,20,15,2000).sg"
+        xgrid = simplexgrid(gridfile)
+        xgrid = uniform_refine(xgrid,nrefs)
+    else
+        geometry = Array{Float64,1}(geometry)
+        geometry[1] /= 2
+        geometry[2] /= 2
+        geometry[3] = 6.5
+        xgrid = nanowire_tensorgrid(; scale = geometry, nrefs = nrefs)
+    end
     #xgrid = nanowire_grid(; scale = geometry)
-    xgrid = nanowire_grid2D(; scale = geometry)
-    gridplot(xgrid; Plotter=PyPlot)
-    #xgrid = uniform_refine(xgrid,nrefs)
+    gridplot(xgrid; Plotter=Plotter)
+
     @show xgrid
 
 
@@ -163,7 +166,7 @@ function main(d = nothing; verbosity = 0, Plotter = nothing, force::Bool = false
     subiterations = [[1]]
 
     ## add Dirichlet boundary data on front
-    add_boundarydata!(Problem, 1, [1], HomogeneousDirichletBoundary)
+    add_boundarydata!(Problem, 1, [4,5], HomogeneousDirichletBoundary) # 4 = core bottom
 
     ## add (nonlinear) operators for displacement equation
     for r = 1 : nregions
@@ -286,12 +289,20 @@ function load_data(d = nothing; kwargs...)
     if d === nothing
         d = get_defaults()
     end
-    set_params!(d, kwargs)
+    set_params!(d; kwargs...)
 
     # load dict from file
     filename = savename(d, "jld2"; allowedtypes = watson_allowedtypes, accesses = watson_accesses)
     d = wload(datadir(watson_datasubdir, filename))
     return d
+end
+
+function export_vtk(d = nothing; upscaling = 0, kwargs...)
+    d = load_data(d; kwargs)
+    filename_vtk = savename(d, ""; allowedtypes = watson_allowedtypes, accesses = watson_accesses)
+    solution = d["solution"]
+    repair_grid!(solution[1].FES.xgrid)
+    writeVTK(datadir(watson_datasubdir, filename_vtk), solution[1]; upscaling = upscaling, strain_model = d["strainm"])
 end
 
 function postprocess(filename; Plotter = nothing, cut_levels = "auto", simple_cuts = false, cut_npoints = 100, vol_cut = "auto", upscaling = 0)

@@ -153,13 +153,17 @@ function main(d::Dict; verbosity = 0)
     dim::Int = length(scale)
     @assert (femorder in 1:2) || (dim == 2)
     if dim == 3
-        xgrid = bimetal_strip3D(; material_border = mb, scale = scale)
+        #xgrid = bimetal_strip3D(; material_border = mb, scale = scale)
+        #xgrid = uniform_refine(xgrid,nrefs)
+        xgrid = bimetal_tensorgrid(; scale = scale, nrefs = nrefs)
         FEType = (femorder == 1) ? H1P1{3} : H1P2{3,3}
+        dirichlet_regions = [3,4]
     else
         xgrid = bimetal_strip2D(; material_border = mb, scale = scale)
         FEType = H1Pk{2,2,femorder}
+        xgrid = uniform_refine(xgrid,nrefs)
+        dirichlet_regions = [1]
     end
-    xgrid = uniform_refine(xgrid,nrefs)
 
     ## setup model
     full_nonlin *= strainm <: NonlinearStrain
@@ -170,7 +174,7 @@ function main(d::Dict; verbosity = 0)
     add_unknown!(Problem; unknown_name = "u", equation_name = "displacement equation")
     add_operator!(Problem, 1, get_displacement_operator(IsotropicElasticityTensor(λ[1], μ[1], dim), strainm, misfit_strain[1], α[1]; dim = dim, emb = emb, regions = [1], bonus_quadorder = 2*(femorder-1)))
     add_operator!(Problem, 1, get_displacement_operator(IsotropicElasticityTensor(λ[2], μ[2], dim), strainm, misfit_strain[2], α[2]; dim = dim, emb = emb, regions = [2], bonus_quadorder = 2*(femorder-1)))
-    add_boundarydata!(Problem, 1, [1], HomogeneousDirichletBoundary)
+    add_boundarydata!(Problem, 1, dirichlet_regions, HomogeneousDirichletBoundary)
     @show Problem
 
     ## solve system with FEM

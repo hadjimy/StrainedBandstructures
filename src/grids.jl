@@ -605,15 +605,19 @@ function nanowire_grid(; scale = [1,1,1,1], anisotropy = [1,1,1,1], reflevel = 1
     return xgrid
 end
 
-function nanowire_grid2D(; scale = [1,1,1,1], anisotropy = [1,1,1,1], reflevel = 1, maxvol = prod(scale./anisotropy)/8)
+function nanowire_tensorgrid(; scale = [1,1,1,1], nrefs = 1)
 
     @info "Generating nanowire grid for scale = $scale"
-    scale ./= anisotropy
+    
     builder=SimplexGridBuilder(Generator=Triangulate)
 
     d1 = scale[1]
     d2 = scale[1] + scale[2]
     δ = scale[3]
+    vol_factor_core = 4.0^-nrefs
+    vol_factor_shell = 4.0^-nrefs
+    vol_factor_stressor = 4.0^-(nrefs+1)
+    hz_factor = 2.0^-nrefs
 
     A_core = 3*sqrt(3)/2 * scale[1]^2
     A_shell = 3*sqrt(3)/2 * (scale[2]^2 + 2*scale[1]*scale[2])
@@ -661,29 +665,101 @@ function nanowire_grid2D(; scale = [1,1,1,1], anisotropy = [1,1,1,1], reflevel =
     facet!(builder,p14,p10)
 
     cellregion!(builder,1) # material 1
-    maxvolume!(builder,A_core/6)
+    maxvolume!(builder,A_core/6*vol_factor_core)
     regionpoint!(builder,(0,0))
 
     cellregion!(builder,2) # material 2
-    maxvolume!(builder,A_shell/6)
+    maxvolume!(builder,A_shell/6*vol_factor_shell)
     regionpoint!(builder,(scale[1]+scale[2]/2,0))
 
     cellregion!(builder,3) # material 3
-    maxvolume!(builder,A_stressor/6)
+    maxvolume!(builder,A_stressor/6*vol_factor_stressor)
     regionpoint!(builder,(0,-sqrt(3)/2*d2-δ/2))
 
     xgrid = simplexgrid(builder)
 
-    hz = scale[4]/10
-    xgrid = simplexgrid(xgrid,0:hz:scale[4])
+    hz = 10 * hz_factor
+    xgrid = simplexgrid(xgrid,0:hz:scale[4]; bot_offset = 3, top_offset = 6)
+    # the offsets lead to the following boundary regions:
+    # 1 = side core (not seen from outside)
+    # 2 = side shell
+    # 3 = side stressor
+    # 4 = bottom core
+    # 5 = bottom shell
+    # 6 = bottom stressor
+    # 7 = top core
+    # 8 = top shell
+    # 9 = top stressor
 
-    # Coords = xgrid[Coordinates]
-    # for k = 1 : 3, n = 1 : size(Coords,2)
-    #     Coords[k,n] *= anisotropy[k]
-    # end
-    # scale .*= anisotropy
 
-    # xgrid = uniform_refine(xgrid,reflevel)
+    ## fix local orderings to avoid negative CellVolumes
+    xCellVolumes = xgrid[CellVolumes]
+    xCellNodes = xgrid[CellNodes]
+    for cell = 1 : num_cells(xgrid)
+        if xCellVolumes[cell] < 0
+            xCellNodes[[2,1],cell] = xCellNodes[[1,2],cell]
+            xCellVolumes[cell] *= -1
+        end
+    end
+    return xgrid
 
     return xgrid
+end
+
+function bimetal_tensorgrid(; scale = [1,1,1], nrefs = 1, material_border = 0.5)
+
+    @info "Generating bimetal grid for scale = $scale"
+
+    vol_factor = scale[1]*scale[2]*4.0^-nrefs/2
+    hz_factor = 2.0^-nrefs
+
+    builder=SimplexGridBuilder(Generator=Triangulate)
+    p1=point!(builder,0,0)                                                
+    p2=point!(builder,scale[1],0)                                         
+    p3=point!(builder,scale[1],scale[2])                                  
+    p4=point!(builder,0,scale[2])                                         
+    p5=point!(builder,0,material_border*scale[2])                         
+    p6=point!(builder,scale[1],material_border*scale[2])                 
+
+    facetregion!(builder,10) # interior boundary
+    facet!(builder,p5 ,p6)
+
+    facetregion!(builder,1) # outer boundary material 1
+    facet!(builder,p5, p1)
+    facet!(builder,p1, p2)
+    facet!(builder,p2, p6)
+
+    facetregion!(builder,2) # outer boundary material 2
+    facet!(builder,p6, p3)
+    facet!(builder,p3, p4)
+    facet!(builder,p4, p5)
+
+    cellregion!(builder,1)
+    maxvolume!(builder,vol_factor)
+    regionpoint!(builder,(0.5*scale[1],0.5*material_border*scale[2]))
+
+    cellregion!(builder,2)
+    maxvolume!(builder,vol_factor)
+    regionpoint!(builder,(0.5*scale[1],0.5*(material_border+1)*scale[2]))
+
+    xgrid = simplexgrid(builder)
+
+    hz = 100 * hz_factor
+    xgrid = simplexgrid(xgrid,0:hz:scale[3]; bot_offset = 2, top_offset = 4)
+
+
+    ## fix local orderings to avoid negative CellVolumes
+    xCellVolumes = xgrid[CellVolumes]
+    xCellNodes = xgrid[CellNodes]
+    for cell = 1 : num_cells(xgrid)
+        if xCellVolumes[cell] < 0
+            xCellNodes[[2,1],cell] = xCellNodes[[1,2],cell]
+            xCellVolumes[cell] *= -1
+        end
+    end
+    return xgrid
+
+
+    return xgrid
+
 end
