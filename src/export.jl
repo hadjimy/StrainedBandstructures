@@ -1,8 +1,11 @@
 
 ## writes (upscaled) Displacement and (optionally) Polarisation into vtk file
 ## on unbended and bended grid
-function writeVTK(filename, Displacement::FEVectorBlock{T,Tv,Ti,FEType,APT}, Polarisation = nothing;
-    eps_gfind = 1e-12, upscaling = 0, P0strain::Bool = true, strain_model = NonlinearStrain2D) where {T,Tv,Ti,FEType,APT}
+function exportVTK(filename, Displacement::FEVectorBlock{T,Tv,Ti,FEType,APT}, Polarisation = nothing;
+    eps_gfind = 1e-12,
+    upscaling = 0,
+    P0strain::Bool = true,
+    strain_model = NonlinearStrain2D) where {T,Tv,Ti,FEType,APT}
 
     ## get original grid
     xgrid_plot = Displacement.FES.xgrid
@@ -42,16 +45,16 @@ function writeVTK(filename, Displacement::FEVectorBlock{T,Tv,Ti,FEType,APT}, Pol
         end
     end
 
-    ## write solution to vtk (unbended and bended linear/nonlinear)
+    ## write solution to vtk (unbended and bended)
+    kwargs = Dict()
+    kwargs[:cellregions] = xgrid_plot[CellRegions]
+    kwargs[:displacement] = nodevalues(Solution_plot[1], Identity)
+    kwargs[:grad_displacement] = nodevalues(Solution_plot[1], Gradient)
+    kwargs[:strain] = nodevalues(Solution_plot[2], Identity)
     if Polarisation !== nothing
-        println("Exporting results as vtk files with the file prefix $filename")
-        writeVTK!(filename * "_unbend.vtu", [Solution_plot[1], Solution_plot[1], Solution_plot[2], Solution_plot[3], Solution_plot[3]]; operators = [Identity,Gradient,Identity,Identity,Gradient], add_regions = true)
-        xgrid_displaced = displace_mesh(xgrid_plot, Solution_plot[1])
-        writeVTK!(filename * "_bend.vtu", [Solution_plot[1], Solution_plot[1], Solution_plot[2], Solution_plot[3], Solution_plot[3]]; xgrid = xgrid_displaced, operators = [Identity,Gradient,Identity,Identity,Gradient], add_regions = true)
-    else
-        println("Exporting results as vtk files with the file prefix $filename")
-        writeVTK!(filename * "_unbend.vtu", [Solution_plot[1], Solution_plot[1], Solution_plot[2]]; operators = [Identity,Gradient,Identity], add_regions = true)
-        xgrid_displaced = displace_mesh(xgrid_plot, Solution_plot[1])
-        writeVTK!(filename * "_bend.vtu", [Solution_plot[1], Solution_plot[1], Solution_plot[2]]; xgrid = xgrid_displaced, operators = [Identity,Gradient,Identity], add_regions = true)
+        kwargs[:polarisation] = Solution_plot[3]
     end
+    ExtendableGrids.writeVTK(filename * "_unbend.vtu", xgrid_plot; kwargs...)
+    xgrid_displaced = displace_mesh(xgrid_plot, Solution_plot[1])
+    ExtendableGrids.writeVTK(filename * "_bend.vtu", xgrid_displaced; kwargs...)
 end

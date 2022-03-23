@@ -690,19 +690,7 @@ function nanowire_tensorgrid(; scale = [1,1,1,1], nrefs = 1)
     # 7 = top core
     # 8 = top shell
     # 9 = top stressor
-
-
-    ## fix local orderings to avoid negative CellVolumes
-    xCellVolumes = xgrid[CellVolumes]
-    xCellNodes = xgrid[CellNodes]
-    for cell = 1 : num_cells(xgrid)
-        if xCellVolumes[cell] < 0
-            xCellNodes[[2,1],cell] = xCellNodes[[1,2],cell]
-            xCellVolumes[cell] *= -1
-        end
-    end
-    return xgrid
-
+    
     return xgrid
 end
 
@@ -746,19 +734,6 @@ function bimetal_tensorgrid(; scale = [1,1,1], nrefs = 1, material_border = 0.5)
 
     hz = 100 * hz_factor
     xgrid = simplexgrid(xgrid,0:hz:scale[3]; bot_offset = 2, top_offset = 4)
-
-
-    ## fix local orderings to avoid negative CellVolumes
-    xCellVolumes = xgrid[CellVolumes]
-    xCellNodes = xgrid[CellNodes]
-    for cell = 1 : num_cells(xgrid)
-        if xCellVolumes[cell] < 0
-            xCellNodes[[2,1],cell] = xCellNodes[[1,2],cell]
-            xCellVolumes[cell] *= -1
-        end
-    end
-    return xgrid
-
 
     return xgrid
 

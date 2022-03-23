@@ -66,7 +66,7 @@ export tet_x_plane!, plane_cut, get_cutgrids
 export perform_simple_plane_cuts, perform_plane_cuts
 
 include("export.jl")
-export writeVTK
+export exportVTK
 
 include("statistics.jl")
 export compute_statistics

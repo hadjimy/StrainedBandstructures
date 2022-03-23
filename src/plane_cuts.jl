@@ -428,8 +428,13 @@ function perform_simple_plane_cuts(target_folder_cut, Solution, plane_points, cu
 
         ## write data into csv file
         @info "Exporting cut data for cut_level = $(cut_level)..."
-        writeVTK!(target_folder_cut * "simple_cut_$(cut_level)_data.vtu", [SimpleCutSolution_u[1], SimpleCutSolution_∇u[1], SimpleCutSolution_ϵu[1]]; operators = [Identity, Identity, Identity], add_regions = true)
-
+        kwargs = Dict()
+        kwargs[:cellregions] = cut_grid[CellRegions]
+        kwargs[:displacement] = nodevalues(SimpleCutSolution_u[1], Identity)
+        kwargs[:grad_displacement] = nodevalues(SimpleCutSolution_∇u[1], Identity)
+        kwargs[:strain] = nodevalues(SimpleCutSolution_ϵu[1], Identity)
+        ExtendableGrids.writeVTK(target_folder_cut * "simple_cut_$(cut_level)_data.vtu", cut_grid; kwargs...)
+        
         if do_simplecut_plots
             @info "Plotting data on simple cut grid..."
             nodevals_cut = nodevalues_view(SimpleCutSolution_u[1])
@@ -610,7 +615,12 @@ function perform_simple_plane_cuts(target_folder_cut, Solution, plane_points, cu
 
             ## write data into vtk file
             @info "Writing data into vtk file..."
-            writeVTK!(target_folder_cut * "uniform_cut_$(cut_level)_data.vtu", [CutSolution_u[1],CutSolution_∇u[1],CutSolution_ϵu[1],CutSolution_P[1]]; operators = [Identity, Identity, Identity, Identity], add_regions = true)
+            kwargs = Dict()
+            kwargs[:cellregions] = xgrid_uni[CellRegions]
+            kwargs[:displacement] = nodevalues(CutSolution_u[1], Identity)
+            kwargs[:grad_displacement] = nodevalues(CutSolution_∇u[1], Identity)
+            kwargs[:strain] = nodevalues(CutSolution_ϵu[1], Identity)
+            ExtendableGrids.writeVTK(target_folder_cut * "uniform_cut_$(cut_level)_data.vtu", xgrid_uni; kwargs...)
            
 
             ## write material map into txt files

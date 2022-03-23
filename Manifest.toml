@@ -169,10 +169,10 @@ uuid = "fdbdab4c-e67f-52f5-8c3f-e7b388dad3d4"
 version = "1.2.9"
 
 [[ExtendableGrids]]
-deps = ["AbstractTrees", "Dates", "DocStringExtensions", "ElasticArrays", "InteractiveUtils", "LinearAlgebra", "Printf", "Random", "SparseArrays", "StaticArrays", "Test"]
-git-tree-sha1 = "b8abd7c10625b1936f53e8e407c2060a489cc96e"
+deps = ["AbstractTrees", "Dates", "DocStringExtensions", "ElasticArrays", "InteractiveUtils", "LinearAlgebra", "Printf", "Random", "SparseArrays", "StaticArrays", "Test", "WriteVTK"]
+git-tree-sha1 = "36357fe1d197ee0a42848f9f6a4bb8d80cffb5ce"
 uuid = "cfc395e8-590f-11e8-1f13-43a2532b2fa8"
-version = "0.9.1"
+version = "0.9.3"
 
 [[ExtendableSparse]]
 deps = ["DocStringExtensions", "LinearAlgebra", "Printf", "Requires", "SparseArrays", "SuiteSparse", "Test"]
@@ -434,6 +434,12 @@ deps = ["Pkg"]
 git-tree-sha1 = "a7a7e1a88853564e551e4eba8650f8c38df79b37"
 uuid = "eebad327-c553-4316-9ea0-9fa01ccd7688"
 version = "0.1.1"
+
+[[PlutoVista]]
+deps = ["ColorSchemes", "Colors", "DocStringExtensions", "GridVisualize", "HypertextLiteral", "UUIDs"]
+git-tree-sha1 = "2435d1d3e02db324414f268f30999b5c06a0d10f"
+uuid = "646e1f28-b900-46d7-9d87-d554eb38a413"
+version = "0.8.12"
 
 [[PooledArrays]]
 deps = ["DataAPI", "Future"]

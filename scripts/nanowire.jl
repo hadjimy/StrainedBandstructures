@@ -51,7 +51,7 @@ function get_defaults()
     return params
 end
 
-function set_params!(d; kwargs)
+function set_params!(d; kwargs...)
     for (k,v) in kwargs
         d[String(k)]=v
     end
@@ -79,7 +79,7 @@ function main(d = nothing; verbosity = 0, Plotter = nothing, force::Bool = false
     ## load parameter set
     if d === nothing
         d = get_defaults()
-        set_params!(d; kwargs)
+        set_params!(d; kwargs...)
     end
 
     println("***Solving nanowire problem***")
@@ -302,10 +302,10 @@ function export_vtk(d = nothing; upscaling = 0, kwargs...)
     filename_vtk = savename(d, ""; allowedtypes = watson_allowedtypes, accesses = watson_accesses)
     solution = d["solution"]
     repair_grid!(solution[1].FES.xgrid)
-    writeVTK(datadir(watson_datasubdir, filename_vtk), solution[1]; upscaling = upscaling, strain_model = d["strainm"])
+    exportVTK(datadir(watson_datasubdir, filename_vtk), solution[1]; P0strain = true, upscaling = upscaling, strain_model = d["strainm"])
 end
 
-function postprocess(filename; Plotter = nothing, cut_levels = "auto", simple_cuts = false, cut_npoints = 100, vol_cut = "auto", upscaling = 0)
+function postprocess(filename; Plotter = nothing, cut_levels = "auto", simple_cuts = true, cut_npoints = 100, vol_cut = "auto", upscaling = 0)
 
     if typeof(filename) <: Dict
         d = filename
@@ -316,6 +316,7 @@ function postprocess(filename; Plotter = nothing, cut_levels = "auto", simple_cu
 
     ## compute statistics
     @unpack solution, geometry = d
+    repair_grid!(solution[1].FES.xgrid)
     angle, curvature, dist_bend, farthest_point = compute_statistics(solution[1].FES.xgrid, solution[1], [0,0,geometry[4]])
     d["angle"] = angle
     d["curvature"] = curvature
@@ -323,11 +324,10 @@ function postprocess(filename; Plotter = nothing, cut_levels = "auto", simple_cu
     # export vtk files
     @unpack polarisation, strainm = d
     filename_vtk = savename(d, ""; allowedtypes = watson_allowedtypes, accesses = watson_accesses)
-    repair_grid!(solution[1].FES.xgrid)
     if polarisation
-        NanoWiresJulia.writeVTK(datadir(watson_datasubdir, filename_vtk), solution[1], solution[2]; upscaling = upscaling, strain_model = strainm, eps_gfind = 1e-10)
+        NanoWiresJulia.exportVTK(datadir(watson_datasubdir, filename_vtk), solution[1], solution[2]; upscaling = upscaling, strain_model = strainm, eps_gfind = 1e-10)
     else
-        NanoWiresJulia.writeVTK(datadir(watson_datasubdir, filename_vtk), solution[1]; upscaling = upscaling, strain_model = strainm, eps_gfind = 1e-10)
+        NanoWiresJulia.exportVTK(datadir(watson_datasubdir, filename_vtk), solution[1]; upscaling = upscaling, strain_model = strainm, eps_gfind = 1e-10)
     end
 
     ## save again
@@ -346,11 +346,12 @@ function postprocess(filename; Plotter = nothing, cut_levels = "auto", simple_cu
     mkpath(datadir(watson_datasubdir, filename_cuts))
     diam = geometry[1] + geometry[2]
     plane_points = [[-0.25*diam,-0.25*diam],[0.25*diam,-0.25*diam],[-0.25*diam,0.25*diam]] # = [X,Y] coordinates of the three points that define the cut plane
-    #if simple_cuts # needs grid that triangulates cut_levels
-    #    perform_simple_plane_cuts(datadir(watson_datasubdir, filename_cuts), solution, plane_points, cut_levels; eps_gfind = 1e-10, only_localsearch = true, strain_model = strainm, cut_npoints = 100, vol_cut = 100, Plotter = Plotter)
-    #else
+    if simple_cuts # needs grid that triangulates cut_levels
+        perform_simple_plane_cuts(datadir(watson_datasubdir, filename_cuts), solution, plane_points, cut_levels; eps_gfind = 1e-10, only_localsearch = true, strain_model = strainm, Plotter = Plotter)
+    else
         perform_plane_cuts(datadir(watson_datasubdir, filename_cuts), solution, plane_points, cut_levels; strain_model = strainm, cut_npoints = cut_npoints, vol_cut = vol_cut, Plotter = Plotter)
-    #end
+    end
+    
 end
 
 end

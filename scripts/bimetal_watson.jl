@@ -227,7 +227,7 @@ function export_vtk(d = nothing; upscaling = 0, kwargs...)
     filename_vtk = savename(d, ""; allowedtypes = watson_allowedtypes, accesses = watson_accesses)
     solution = d["solution"]
     repair_grid!(solution[1].FES.xgrid)
-    writeVTK(datadir(watson_datasubdir, filename_vtk), solution[1]; upscaling = upscaling, strain_model = d["strainm"])
+    exportVTK(datadir(watson_datasubdir, filename_vtk), solution[1]; upscaling = upscaling, strain_model = d["strainm"])
 end
 
 function export_cuts(; 
