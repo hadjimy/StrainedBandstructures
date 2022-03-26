@@ -55,7 +55,7 @@ export NonlinearStrain, NonlinearStrain2D, NonlinearStrain3D
 export eval_strain!
 
 include("pdeoperators.jl")
-export get_displacement_operator
+export get_displacement_operator, get_displacement_operator_new
 export get_polarisation_from_strain_operator
 export get_polarisation_laplacian_operator
 export get_polarisation_operator # wip

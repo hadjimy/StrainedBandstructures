@@ -3,8 +3,81 @@
 ## ((1 + ∇u) ℂ(ϵ(u) - ϵ0) / (1 + α), ∇v)
 ##
 ## note: since (1 + ∇u) is not symmetric, it is tested with full gradient ∇v
+
+mutable struct PDEDisplacementOperator{T, ST <: StrainType, STTType, FTypeVoigtCompress <: Function, FTypeAddGradUxStress <: Function}
+    STT::STTType     # stress tensor ℂ
+    misfit_strain::Vector{Vector{T}}
+    α::Vector{T}
+    emb::Vector{T}
+    uncompress_voigt!::FTypeVoigtCompress
+    add_gradu_x_stress!::FTypeAddGradUxStress
+    dim::Int
+    cache_offset::Int
+end
+
+
+(op::PDEDisplacementOperator{T,ST})(result, input, item) where {T,ST} = begin
+    ## input = [∇u] written as a vector of length dim^2
+    ## result = (1 + ∇u) ℂϵ(u) / (1 + α) written as a vector of length dim^2 (to be multiplied by ∇v)
+
+    ## evaluate strain into result (Voigt notation)
+    eval_strain!(result, input, ST)
+
+    ## subtract misfit strain
+    @views result[1:op.dim] .-= op.misfit_strain[item[3]]
+
+    ## multiply strain in result with isotropic stress tensor
+    ## and store in input cache (all in Voigt notation)
+    apply_elasticity_tensor!(input, result, op.STT[item[3]]; offset = op.cache_offset)
+
+    ## uncompress stress in Voigt notation (input) into full matrix (result)
+    op.uncompress_voigt!(result, input; offset = op.cache_offset)
+
+    if op.emb[1] > 0.
+        # add emb[1]*grad(u)*sigma(u) (in case of complicated model)
+        op.add_gradu_x_stress!(result, input; factor = op.emb[1], offset = op.cache_offset)
+    end
+
+    ## multiply by -1/(1 + α) * I
+    result .*= -1 / (1 .+ op.α[item[3]])
+
+    return nothing
+end
+
+function PDEDisplacementOperator(STT, ST, misfit_strain, α, emb, dim)
+    uncompress_voigt! = (dim == 2) ? uncompress_voigt2D! : uncompress_voigt3D!
+    add_gradu_x_stress! = (dim == 2) ? add_gradu_x_stress2D! : add_gradu_x_stress3D!
+    return PDEDisplacementOperator{Float64, ST, typeof(STT), typeof(uncompress_voigt!), typeof(add_gradu_x_stress!)}(STT,misfit_strain,α,emb,uncompress_voigt!,add_gradu_x_stress!,dim,dim^2)
+end
+
+
+function get_displacement_operator_new(
+    STT::Vector{<:ElasticityTensorType},     # stress tensor ℂ
+    ST::Type{<:StrainType},     # strain type ϵ (e.g. Nonlinear3D)
+    misfit_strain,              # misfit strain ϵ0 (constant scalar or vector)
+    α;                          # average values (constant scalar or vector)
+    displacement_id = 1,        # unknown id for displacement
+    dim = 2,                    # dimension
+    emb = [1],                  # embedding coefficients for complicated nonlinear features
+                                # (overwrite with your array to use with embedding solver)
+    regions = [0],              # regions where the operator integrates
+    bonus_quadorder = 2)        # quadrature order
+    
+    return NonlinearForm(Gradient,                                      # operator for test function
+                         [Gradient],                                    # operators for ansatz function
+                         [displacement_id],                             # unknown_ids for ansatz function
+                         PDEDisplacementOperator(STT, ST, misfit_strain, α, emb, dim),
+                         [dim^2, dim^2, Int(dim^2+dim*(dim+1)/2)];      # argument sizes for kernel function result and input and cache
+                         name = "((I + emb*∇u)C(ϵ(u)-ϵ0) : ∇v)",         # name for print-outs
+                         regions = regions,                             # regions where nonlinearform intergrates
+                         dependencies = "I",                            # make it item-dependent (to get the region)
+                         bonus_quadorder = bonus_quadorder,             # quadrature order
+                         store = false,
+                         newton = true)                                 # activate Newton derivatives (false won't work here)
+end
+
 function get_displacement_operator(
-    STT::ElasticityTensorType,      # stress tensor ℂ
+    STT::ElasticityTensorType,     # stress tensor ℂ
     ST::Type{<:StrainType},     # strain type ϵ (e.g. Nonlinear3D)
     misfit_strain,              # misfit strain ϵ0 (constant scalar or vector)
     α;                          # average values (constant scalar or vector)

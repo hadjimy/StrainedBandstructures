@@ -84,14 +84,6 @@ function main(d = nothing; verbosity = 0, Plotter = nothing, force::Bool = false
 
     println("***Solving nanowire problem***")
 
-    # TODO: a grid generator in julia would be nice
-    # println("***Creating nanowire mesh***")
-    # current_directory = pwd()
-    # println(current_directory)
-    # cd("..")
-    # run(`python3 nanowire.py`)
-    # cd(current_directory)
-
     ## set log level
     set_verbosity(verbosity)
 
@@ -173,9 +165,10 @@ function main(d = nothing; verbosity = 0, Plotter = nothing, force::Bool = false
         if fully_coupled
             # todo
         else
-            add_operator!(Problem, 1, get_displacement_operator(MD.TensorC[r], strainm, eps0[r][1], a[r]; dim = 3, emb = parameters, regions = [r], bonus_quadorder = quadorder_D)) 
+           # add_operator!(Problem, 1, get_displacement_operator(MD.TensorC[r], strainm, eps0[r][1], a[r]; dim = 3, emb = parameters, regions = [r], bonus_quadorder = quadorder_D)) 
         end
     end
+    add_operator!(Problem, 1, get_displacement_operator_new(MD.TensorC, strainm, eps0, a; dim = 3, emb = parameters, regions = 1:nregions, bonus_quadorder = quadorder_D)) 
 
     ## add (linear) operators for polarisation equation
     if polarisation
@@ -201,8 +194,16 @@ function main(d = nothing; verbosity = 0, Plotter = nothing, force::Bool = false
     ##############
 
     ## choose finite element type for displacement (vector-valued) and polarisation (scalar-valued)
-    FEType_D = femorder == 1 ? H1P1{3} : H1P2{3,3} 
-    FEType_P = femorder_P == 1 ? H1P1{1} : H1P2{1,3}
+    if femorder == 1
+        FEType_D = H1P1{3}
+        FEType_P = H1P1{1}
+    elseif femorder == 2
+        FEType_D = H1P2{3,3} 
+        FEType_P = H1P2{1,3}
+    elseif femorder == 3
+        FEType_D = H1P3{3,3} 
+        FEType_P = H1P3{1,3}
+    end
 
     ## call solver
     @unpack nsteps, tres, maxits, linsolver = d
@@ -298,17 +299,20 @@ function load_data(d = nothing; kwargs...)
 end
 
 function export_vtk(d = nothing; upscaling = 0, kwargs...)
-    d = load_data(d; kwargs)
+    d = load_data(d; kwargs...)
     filename_vtk = savename(d, ""; allowedtypes = watson_allowedtypes, accesses = watson_accesses)
     solution = d["solution"]
     repair_grid!(solution[1].FES.xgrid)
     exportVTK(datadir(watson_datasubdir, filename_vtk), solution[1]; P0strain = true, upscaling = upscaling, strain_model = d["strainm"])
 end
 
-function postprocess(filename; Plotter = nothing, cut_levels = "auto", simple_cuts = true, cut_npoints = 100, vol_cut = "auto", upscaling = 0)
+function postprocess(filename = nothing; Plotter = nothing, cut_levels = "auto", simple_cuts = true, cut_npoints = 100, vol_cut = "auto", upscaling = 0, kwargs...)
 
     if typeof(filename) <: Dict
         d = filename
+        filename = savename(d, "jld2"; allowedtypes = watson_allowedtypes, accesses = watson_accesses)
+    elseif filename === nothing
+        d = load_data(; kwargs...)
         filename = savename(d, "jld2"; allowedtypes = watson_allowedtypes, accesses = watson_accesses)
     else
         d = wload(datadir(watson_datasubdir, filename))

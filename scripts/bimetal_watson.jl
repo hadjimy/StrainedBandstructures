@@ -156,7 +156,13 @@ function main(d::Dict; verbosity = 0)
         #xgrid = bimetal_strip3D(; material_border = mb, scale = scale)
         #xgrid = uniform_refine(xgrid,nrefs)
         xgrid = bimetal_tensorgrid(; scale = scale, nrefs = nrefs)
-        FEType = (femorder == 1) ? H1P1{3} : H1P2{3,3}
+        if femorder == 1
+            FEType = H1P1{3}
+        elseif femorder == 2
+            FEType = H1P2{3,3} 
+        elseif femorder == 3
+            FEType = H1P3{3,3} 
+        end
         dirichlet_regions = [3,4]
     else
         xgrid = bimetal_strip2D(; material_border = mb, scale = scale)

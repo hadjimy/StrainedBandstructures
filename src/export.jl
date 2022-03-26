@@ -47,12 +47,16 @@ function exportVTK(filename, Displacement::FEVectorBlock{T,Tv,Ti,FEType,APT}, Po
 
     ## write solution to vtk (unbended and bended)
     kwargs = Dict()
+    views_displacements = nodevalues_view(Solution_plot[1])
+    A = [views_displacements[1],views_displacements[2],views_displacements[3]]
     kwargs[:cellregions] = xgrid_plot[CellRegions]
-    kwargs[:displacement] = nodevalues(Solution_plot[1], Identity)
-    kwargs[:grad_displacement] = nodevalues(Solution_plot[1], Gradient)
-    kwargs[:strain] = nodevalues(Solution_plot[2], Identity)
+    kwargs[:displacement_X] = views_displacements[1]
+    kwargs[:displacement_Y] = views_displacements[2]
+    kwargs[:displacement_Z] = views_displacements[3]
+    kwargs[:grad_displacement] = view(nodevalues(Solution_plot[1], Gradient),:,:)
+    kwargs[:strain] = view(nodevalues(Solution_plot[2], Identity),:,:)
     if Polarisation !== nothing
-        kwargs[:polarisation] = Solution_plot[3]
+        kwargs[:polarisation] = nodevalues_view(Solution_plot[3])[1]
     end
     ExtendableGrids.writeVTK(filename * "_unbend.vtu", xgrid_plot; kwargs...)
     xgrid_displaced = displace_mesh(xgrid_plot, Solution_plot[1])

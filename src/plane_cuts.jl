@@ -301,6 +301,7 @@ function perform_simple_plane_cuts(target_folder_cut, Solution, plane_points, cu
         view(GlobalInterpolation_∇u.entries,(j-1)*nnodes+1:j*nnodes) .= view(nodevals_gradient,j,:)
     end
     strain = zeros(Float64,6)
+    gradient = zeros(Float64,9)
 
     for l = 1 : length(cut_levels)
 
@@ -393,7 +394,8 @@ function perform_simple_plane_cuts(target_folder_cut, Solution, plane_points, cu
 
         ## interpolate data on cut_grid
         @info "Interpolating data on cut mesh..."
-        FES2D = FESpace{H1P1{3}}(cut_grid)
+        order_u = get_polynomialorder(eltype(Solution[1].FES), Tetrahedron3D)
+        FES2D = FESpace{H1Pk{3,2,order_u}}(cut_grid)
         FES2D_∇u = FESpace{H1P1{9}}(cut_grid)
         FES2D_ϵu = FESpace{H1P1{6}}(cut_grid)
         SimpleCutSolution_u = FEVector{Float64}("u (on 2D cut at z = $(cut_level))", FES2D)
@@ -401,16 +403,17 @@ function perform_simple_plane_cuts(target_folder_cut, Solution, plane_points, cu
         SimpleCutSolution_ϵu = FEVector{Float64}("ϵ(u) (on 2D cut at z = $(cut_level))", FES2D_ϵu)
         
         ## calculate strain from gradient interpolation on cut
+        coffset::Int = length(SimpleCutSolution_u.entries)/3
         for j = 1 : nnodes_cut
             for k = 1 : 3
-                SimpleCutSolution_u.entries[(k-1)*nnodes_cut + j] = nodevals[k][nodes4level[j]]
+                SimpleCutSolution_u.entries[(k-1)*coffset + j] = nodevals[k][nodes4level[j]]
             end
             for k = 1 : 9 
                 SimpleCutSolution_∇u.entries[(k-1)*nnodes_cut + j] = nodevals_gradient[k,nodes4level[j]]
-                eval_strain!(strain,view(nodevals_gradient,:,nodes4level[j]), strain_model)
-                for k = 1 : 6
-                    SimpleCutSolution_ϵu.entries[(k-1)*nnodes_cut + j] = strain[k]
-                end
+            end
+            eval_strain!(strain,view(nodevals_gradient,:,nodes4level[j]), strain_model)
+            for k = 1 : 6
+                SimpleCutSolution_ϵu.entries[(k-1)*nnodes_cut + j] = strain[k]
             end
         end
 
@@ -430,9 +433,9 @@ function perform_simple_plane_cuts(target_folder_cut, Solution, plane_points, cu
         @info "Exporting cut data for cut_level = $(cut_level)..."
         kwargs = Dict()
         kwargs[:cellregions] = cut_grid[CellRegions]
-        kwargs[:displacement] = nodevalues(SimpleCutSolution_u[1], Identity)
-        kwargs[:grad_displacement] = nodevalues(SimpleCutSolution_∇u[1], Identity)
-        kwargs[:strain] = nodevalues(SimpleCutSolution_ϵu[1], Identity)
+        kwargs[:displacement] = view(nodevalues(SimpleCutSolution_u[1], Identity),:,:)
+        kwargs[:grad_displacement] = view(nodevalues(SimpleCutSolution_∇u[1], Identity),:,:)
+        kwargs[:strain] = view(nodevalues(SimpleCutSolution_ϵu[1], Identity),:,:)
         ExtendableGrids.writeVTK(target_folder_cut * "simple_cut_$(cut_level)_data.vtu", cut_grid; kwargs...)
         
         if do_simplecut_plots
@@ -498,17 +501,8 @@ function perform_simple_plane_cuts(target_folder_cut, Solution, plane_points, cu
             xCoordinatesUni = xgrid_uni[Coordinates]
             nnodes_uni = size(xCoordinatesUni,2)
             
-            # mapping from 3D coordinates on cut_grid to 2D coordinates on xgrid_uni
-            invR::Matrix{Float64} = inv(R)
-            function xtrafo!(x3D,x2D)
-                for j = 1 : 3
-                    x3D[j] = invR[j,1] * (x2D[1] - xmin) + invR[j,2] * (x2D[2] - ymin) + invR[j,3] * z  # invR * [x2D[1],x2D[2],z]
-                end
-                return nothing
-            end
-
             ## remap simpple grid functions to 2d grid
-            FES2D_simple = FESpace{H1P1{3}}(cut_grid2D)
+            FES2D_simple = FESpace{H1Pk{3,2,order_u}}(cut_grid2D)
             FES2D_simple_∇u = FESpace{H1P1{9}}(cut_grid2D)
             FES2D_simple_ϵu = FESpace{H1P1{6}}(cut_grid2D)
             SimpleCut2DSolution_u = FEVector{Float64}("u (on 2D cut at z = $(cut_level))", FES2D_simple)
@@ -528,38 +522,51 @@ function perform_simple_plane_cuts(target_folder_cut, Solution, plane_points, cu
             CutSolution_∇u = FEVector{Float64}("∇u (on 2D cut at z = $(cut_level))", FES2D_∇u)
             CutSolution_ϵu = FEVector{Float64}("ϵ(u) (on 2D cut at z = $(cut_level))", FES2D_ϵ)
             CutSolution_P = FEVector{Float64}("P (on 2D cut at z = $(cut_level))", FES2D_P)
-            #@time interpolate!(CutSolution_u[1], Solution[1]; xtrafo = xtrafo!, start_cell = start_cell, not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
-            #@time interpolate!(CutSolution_∇u[1], GlobalInterpolation_∇u[1]; operator = Identity, xtrafo = xtrafo!, start_cell = start_cell, not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
 
+            # mapping from 3D coordinates on cut_grid to 2D coordinates on xgrid_uni
+            invR::Matrix{Float64} = inv(R)
+            function xtrafo!(x3D,x2D)
+                for j = 1 : 3
+                    x3D[j] = invR[j,1] * (x2D[1] + xmin) + invR[j,2] * (x2D[2] + ymin) + invR[j,3] * z  # invR * [x2D[1],x2D[2],z]
+                    ## now x3D is the coordinate of the point in the displaced mesh
+                    ## we also need the x3D in the original mesh
+                end
+                return nothing
+            end
+
+            # mapping from 2D coordinates on simple cut_grid to 2D coordinates on xgrid_uni
             function xtrafo2!(x2D_out,x2D_in)
                 x2D_out[1] = x2D_in[1] + xmin
                 x2D_out[2] = x2D_in[2] + ymin
                 return nothing
             end
 
-            interpolate!(CutSolution_u[1], SimpleCut2DSolution_u[1]; xtrafo = xtrafo2!, not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
-            interpolate!(CutSolution_∇u[1], SimpleCut2DSolution_∇u[1]; xtrafo = xtrafo2!, not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
-            interpolate!(CutSolution_ϵu[1], SimpleCut2DSolution_ϵu[1]; xtrafo = xtrafo2!, not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
-            
-            # ## calculate strain from gradient interpolation on cut
-            # nodevals_cut = nodevalues(CutSolution_∇u[1], Identity)
-            # strain = zeros(Float64,6)
-            # nnodes_cut = size(nodevals_cut,2)
-            # for j = 1 : nnodes_cut
-            #     if nodevals_cut[1,j] == NaN
-            #         for k = 1 : 6
-            #             CutSolution_ϵu.entries[(k-1)*nnodes_cut+j] = NaN
-            #         end
-            #     else
-            #         eval_strain!(strain,view(nodevals_cut,:,j), strain_model)
-            #         for k = 1 : 6
-            #             CutSolution_ϵu.entries[(k-1)*nnodes_cut+j] = strain[k]
-            #         end
-            #     end
-            # end
+            interpolate!(CutSolution_u[1], Solution[1]; xtrafo = xtrafo!, start_cell = start_cell, not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
+
+            ## PROBLEM: this interpolates the gradient on the deformed mesh
+            ##          how to transform it to the gradient on the original mesh?
+            interpolate!(CutSolution_∇u[1], Solution[1]; operator = Gradient, start_cell = start_cell, xtrafo = xtrafo!, not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
             if length(Solution) > 1
-               # @time interpolate!(CutSolution_P[1], Solution[2]; xtrafo = xtrafo!, start_cell = start_cell, not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
-               #interpolate!(CutSolution_ϵu[1], SimpleCutSolution_ϵu[1]; not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
+                interpolate!(CutSolution_P[1], Solution[2]; start_cell = start_cell, xtrafo = xtrafo!, not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
+            end
+
+            gradmatrix = zeros(Float64,3,3)
+            for j = 1 : nnodes_uni
+                for k = 1 : 9
+                    gradient[k] = CutSolution_∇u.entries[(k-1)*nnodes_uni + j]
+                end
+                gradmatrix .= (inv([1-gradient[1] gradient[2] gradient[3];
+                              gradient[4] 1-gradient[5] gradient[6];
+                              gradient[7] gradient[8] 1-gradient[9]]) * [gradient[1] gradient[2] gradient[3];
+                              gradient[4] gradient[5] gradient[6];
+                              gradient[7] gradient[8] gradient[9]]')
+                for k = 1 : 9
+                    CutSolution_∇u.entries[(k-1)*nnodes_uni + j] = gradmatrix[k]
+                end
+                eval_strain!(strain, view(gradmatrix,:), strain_model)
+                for k = 1 : 6
+                    CutSolution_ϵu.entries[(k-1)*nnodes_uni + j] = strain[k]
+                end
             end
 
             ## write material map into txt files
@@ -617,9 +624,12 @@ function perform_simple_plane_cuts(target_folder_cut, Solution, plane_points, cu
             @info "Writing data into vtk file..."
             kwargs = Dict()
             kwargs[:cellregions] = xgrid_uni[CellRegions]
-            kwargs[:displacement] = nodevalues(CutSolution_u[1], Identity)
-            kwargs[:grad_displacement] = nodevalues(CutSolution_∇u[1], Identity)
-            kwargs[:strain] = nodevalues(CutSolution_ϵu[1], Identity)
+            kwargs[:displacement] = view(nodevalues(CutSolution_u[1], Identity),:,:)
+            kwargs[:grad_displacement] = view(nodevalues(CutSolution_∇u[1], Identity),:,:)
+            kwargs[:strain] = view(nodevalues(CutSolution_ϵu[1], Identity),:,:)
+            if length(Solution) > 1
+                kwargs[:polarisation] = view(nodevalues(CutSolution_P[1], Identity),:,:)
+            end
             ExtendableGrids.writeVTK(target_folder_cut * "uniform_cut_$(cut_level)_data.vtu", xgrid_uni; kwargs...)
            
 
