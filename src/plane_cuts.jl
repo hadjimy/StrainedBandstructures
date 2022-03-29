@@ -555,11 +555,23 @@ function perform_simple_plane_cuts(target_folder_cut, Solution, plane_points, cu
                 for k = 1 : 9
                     gradient[k] = CutSolution_∇u.entries[(k-1)*nnodes_uni + j]
                 end
+                ## phi = x + u(x) 
+                ## dphi/dx = I + grad_x(u) =: F
+                ## grad_phi(u) we have evaluated above
+                ## 
+                ## want: grad_x(u(x)) = grad_phi(u(phi)) * grad_x(phi) = grad_phi(u) * (I + grad_x(u))
+
+                ## ==> grad_x(u) (I - grad_phi(u)) = grad_phi(u)
+                ## ==> grad_x(u) = grad_phi(u) * inv(I - grad_phi(u))
+
+                ## inv(F)*grad_x(u) = inv(F)*(F - I) = I - inv(F) = grad_phi(u)
+
+                ## inv(I - grad_phi(u)) - I = grad_x(u)
+
+                ###
                 gradmatrix .= (inv([1-gradient[1] gradient[2] gradient[3];
                               gradient[4] 1-gradient[5] gradient[6];
-                              gradient[7] gradient[8] 1-gradient[9]]) * [gradient[1] gradient[2] gradient[3];
-                              gradient[4] gradient[5] gradient[6];
-                              gradient[7] gradient[8] gradient[9]]')
+                              gradient[7] gradient[8] 1-gradient[9]]) - [1 0 0;0 1 0; 0 0 1])'
                 for k = 1 : 9
                     CutSolution_∇u.entries[(k-1)*nnodes_uni + j] = gradmatrix[k]
                 end
