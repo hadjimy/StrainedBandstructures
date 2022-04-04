@@ -22,9 +22,9 @@ version = "0.2.0"
 
 [[ArrayInterface]]
 deps = ["Compat", "IfElse", "LinearAlgebra", "Requires", "SparseArrays", "Static"]
-git-tree-sha1 = "6e8fada11bb015ecf9263f64b156f98b546918c7"
+git-tree-sha1 = "8d4a07999261b4461daae67b2d1e12ae1a097741"
 uuid = "4fba245c-0d91-5ea0-9b3e-6abc04ee57a9"
-version = "5.0.5"
+version = "5.0.6"
 
 [[Artifacts]]
 uuid = "56f22d72-fd6d-98f1-02f0-08ddc0907c33"
@@ -170,9 +170,9 @@ version = "1.2.9"
 
 [[ExtendableGrids]]
 deps = ["AbstractTrees", "Dates", "DocStringExtensions", "ElasticArrays", "InteractiveUtils", "LinearAlgebra", "Printf", "Random", "SparseArrays", "StaticArrays", "Test", "WriteVTK"]
-git-tree-sha1 = "3f7c9c99e134516c362d66487724e2e3d44b19cf"
+git-tree-sha1 = "cec19e62fc126df338de88585f45a763f7601bd3"
 uuid = "cfc395e8-590f-11e8-1f13-43a2532b2fa8"
-version = "0.9.4"
+version = "0.9.5"
 
 [[ExtendableSparse]]
 deps = ["DocStringExtensions", "LinearAlgebra", "Printf", "Requires", "SparseArrays", "SuiteSparse", "Test"]
@@ -228,9 +228,9 @@ version = "0.4.2"
 
 [[GradientRobustMultiPhysics]]
 deps = ["DiffResults", "DocStringExtensions", "ExtendableGrids", "ExtendableSparse", "ForwardDiff", "GridVisualize", "LinearAlgebra", "Logging", "Printf", "SparseArrays", "SparseDiffTools", "SparsityDetection", "StaticArrays", "SuiteSparse", "Test"]
-git-tree-sha1 = "e89dd1a728083abae4b092dbbf2d1a7b6d165a70"
+git-tree-sha1 = "7af8133df9976a9021d8807ec40d841dddb71c03"
 uuid = "0802c0ca-1768-4022-988c-6dd5f9588a11"
-version = "0.9.4"
+version = "0.9.6"
 
 [[Graphs]]
 deps = ["ArnoldiMethod", "Compat", "DataStructures", "Distributed", "Inflate", "LinearAlgebra", "Random", "SharedArrays", "SimpleTraits", "SparseArrays", "Statistics"]
@@ -506,9 +506,9 @@ version = "0.9.4"
 
 [[SimplexGridFactory]]
 deps = ["DocStringExtensions", "ElasticArrays", "ExtendableGrids", "GridVisualize", "LinearAlgebra", "Printf", "Test"]
-git-tree-sha1 = "88dce0e331178bcd812d87247b89f18fabb24ddc"
+git-tree-sha1 = "5504be2daef28d7d99b845ebabbe5b7608106fec"
 uuid = "57bfcd06-606e-45d6-baf4-4ba06da0efd5"
-version = "0.5.13"
+version = "0.5.15"
 
 [[Sockets]]
 uuid = "6462fe0b-24de-5631-8697-dd941f90decc"

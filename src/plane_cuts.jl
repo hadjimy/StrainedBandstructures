@@ -291,23 +291,12 @@ function perform_simple_plane_cuts(target_folder_cut, Solution, plane_points, cu
     CF = CellFinder(xgrid)
     plane_equation_coeffs = zeros(Float64,4)
 
-    ## access nodal values of displacement
-    nodevals = nodevalues_view(Solution[1])
-
-    ## compute nodal values of gradient of displacement and make a P1 function out of it
-    nodevals_gradient = nodevalues(Solution[1], Gradient)
-    GlobalInterpolation_∇u = FEVector{Float64}("∇u (global P1 interpolation)", FESpace{H1P1{9}}(xgrid))
-    for j = 1 : 9
-        view(GlobalInterpolation_∇u.entries,(j-1)*nnodes+1:j*nnodes) .= view(nodevals_gradient,j,:)
-    end
     strain = zeros(Float64,6)
     gradient = zeros(Float64,9)
 
     for l = 1 : length(cut_levels)
 
         cut_level = cut_levels[l]
-
-
 
         ## find faces for this cut_level
         faces4level = findall(abs.(z4Faces .- cut_level) .< eps_gfind)
@@ -371,13 +360,16 @@ function perform_simple_plane_cuts(target_folder_cut, Solution, plane_points, cu
 
         #### SIMPLE CUT GRIDS ###
 
+        ## interpolate identity and gradient on nodes4level
+        nodevals = nodevalues(Solution[1], Identity; continuous = true, nodes = nodes4level)
+
 ##        cut_grid = displace_mesh!(xgrid, Solution[1])
         ## map original 3D coordinates onto 2D plane
         xCoordinatesCut3D = zeros(Float64,3,nnodes_cut)
-        for j in nodes4level
+        for j = 1 : nnodes_cut
             ## displaced nodes
             for k = 1 : 3
-                xCoordinatesCut3D[k,node_permute[j]] = xCoordinates[k,j] + nodevals[k][j]
+                xCoordinatesCut3D[k,j] = xCoordinates[k,nodes4level[j]] + nodevals[k,j]
             end
         end
 
@@ -392,28 +384,17 @@ function perform_simple_plane_cuts(target_folder_cut, Solution, plane_points, cu
         cut_grid[BFaceNodes] = zeros(Int32,2,0)
         cut_grid[BFaceGeometries] = VectorOfConstants{ElementGeometries,Int}(Edge1D, 0)
 
+
         ## interpolate data on cut_grid
         @info "Interpolating data on cut mesh..."
-        order_u = get_polynomialorder(eltype(Solution[1].FES), Tetrahedron3D)
-        FES2D = FESpace{H1Pk{3,2,order_u}}(cut_grid)
-        FES2D_∇u = FESpace{H1P1{9}}(cut_grid)
-        FES2D_ϵu = FESpace{H1P1{6}}(cut_grid)
-        SimpleCutSolution_u = FEVector{Float64}("u (on 2D cut at z = $(cut_level))", FES2D)
-        SimpleCutSolution_∇u = FEVector{Float64}("∇u (on 2D cut at z = $(cut_level))", FES2D_∇u)
-        SimpleCutSolution_ϵu = FEVector{Float64}("ϵ(u) (on 2D cut at z = $(cut_level))", FES2D_ϵu)
+        nodevals_gradient = nodevalues(Solution[1], Gradient; nodes = nodes4level)
+        nodevals_ϵu = zeros(Float64,6,nnodes_cut)
         
         ## calculate strain from gradient interpolation on cut
-        coffset::Int = length(SimpleCutSolution_u.entries)/3
         for j = 1 : nnodes_cut
-            for k = 1 : 3
-                SimpleCutSolution_u.entries[(k-1)*coffset + j] = nodevals[k][nodes4level[j]]
-            end
-            for k = 1 : 9 
-                SimpleCutSolution_∇u.entries[(k-1)*nnodes_cut + j] = nodevals_gradient[k,nodes4level[j]]
-            end
-            eval_strain!(strain,view(nodevals_gradient,:,nodes4level[j]), strain_model)
+            eval_strain!(strain, view(nodevals_gradient,:,j), strain_model)
             for k = 1 : 6
-                SimpleCutSolution_ϵu.entries[(k-1)*nnodes_cut + j] = strain[k]
+                nodevals_ϵu[k,j] = strain[k]
             end
         end
 
@@ -433,23 +414,22 @@ function perform_simple_plane_cuts(target_folder_cut, Solution, plane_points, cu
         @info "Exporting cut data for cut_level = $(cut_level)..."
         kwargs = Dict()
         kwargs[:cellregions] = cut_grid[CellRegions]
-        kwargs[:displacement] = view(nodevalues(SimpleCutSolution_u[1], Identity),:,:)
-        kwargs[:grad_displacement] = view(nodevalues(SimpleCutSolution_∇u[1], Identity),:,:)
-        kwargs[:strain] = view(nodevalues(SimpleCutSolution_ϵu[1], Identity),:,:)
+        kwargs[:displacement] = nodevals
+        kwargs[:grad_displacement] = nodevals_gradient
+        kwargs[:strain] = nodevals_ϵu
         ExtendableGrids.writeVTK(target_folder_cut * "simple_cut_$(cut_level)_data.vtu", cut_grid; kwargs...)
         
         if do_simplecut_plots
             @info "Plotting data on simple cut grid..."
-            nodevals_cut = nodevalues_view(SimpleCutSolution_u[1])
             labels = ["ux","uy","uz"]
             for j = 1 : 3
-                scalarplot(cut_grid2D, nodevals_cut[j], Plotter = Plotter; title = "$(labels[j]) on cut", fignumber = 1)
+                scalarplot(cut_grid2D, view(nodevals,j,:), Plotter = Plotter; title = "$(labels[j]) on cut", fignumber = 1)
                 if isdefined(Plotter,:savefig)
                     Plotter.savefig(target_folder_cut * "simple_cut_$(cut_level)_$(labels[j]).png")
                 end
             end
             for k = 1 : 6
-                scalarplot(cut_grid2D, view(SimpleCutSolution_ϵu.entries,(k-1)*nnodes_cut+1:k*nnodes_cut), Plotter = Plotter; title = "ϵu[$k] on cut", fignumber = 1)
+                scalarplot(cut_grid2D, view(nodevals_ϵu,k,:), Plotter = Plotter; title = "ϵu[$k] on cut", fignumber = 1)
                 if isdefined(Plotter,:savefig)
                     Plotter.savefig(target_folder_cut * "simple_cut_$(cut_level)_ϵ$k.png")
                 end
@@ -500,17 +480,6 @@ function perform_simple_plane_cuts(target_folder_cut, Solution, plane_points, cu
             xgrid_uni = simplexgrid(Xuni,Yuni)
             xCoordinatesUni = xgrid_uni[Coordinates]
             nnodes_uni = size(xCoordinatesUni,2)
-            
-            ## remap simpple grid functions to 2d grid
-            FES2D_simple = FESpace{H1Pk{3,2,order_u}}(cut_grid2D)
-            FES2D_simple_∇u = FESpace{H1P1{9}}(cut_grid2D)
-            FES2D_simple_ϵu = FESpace{H1P1{6}}(cut_grid2D)
-            SimpleCut2DSolution_u = FEVector{Float64}("u (on 2D cut at z = $(cut_level))", FES2D_simple)
-            SimpleCut2DSolution_∇u = FEVector{Float64}("∇u (on 2D cut at z = $(cut_level))", FES2D_simple_∇u)
-            SimpleCut2DSolution_ϵu = FEVector{Float64}("ϵ(u) (on 2D cut at z = $(cut_level))", FES2D_simple_ϵu)
-            SimpleCut2DSolution_u.entries .= SimpleCutSolution_u.entries
-            SimpleCut2DSolution_∇u.entries .= SimpleCutSolution_∇u.entries
-            SimpleCut2DSolution_ϵu.entries .= SimpleCutSolution_ϵu.entries
 
             ## interpolate data on uniform cut_grid
             @info "Interpolating data on uniform cut mesh..."
@@ -520,14 +489,16 @@ function perform_simple_plane_cuts(target_folder_cut, Solution, plane_points, cu
             FES2D_P = FESpace{H1P1{1}}(xgrid_uni)
             CutSolution_u = FEVector{Float64}("u (on 2D cut at z = $(cut_level))", FES2D)
             CutSolution_∇u = FEVector{Float64}("∇u (on 2D cut at z = $(cut_level))", FES2D_∇u)
+            CutSolution_∇u2 = FEVector{Float64}("∇u (on 2D cut at z = $(cut_level))", FES2D_∇u)
             CutSolution_ϵu = FEVector{Float64}("ϵ(u) (on 2D cut at z = $(cut_level))", FES2D_ϵ)
             CutSolution_P = FEVector{Float64}("P (on 2D cut at z = $(cut_level))", FES2D_P)
 
             # mapping from 3D coordinates on cut_grid to 2D coordinates on xgrid_uni
             invR::Matrix{Float64} = inv(R)
+            z_offset = 0.0
             function xtrafo!(x3D,x2D)
                 for j = 1 : 3
-                    x3D[j] = invR[j,1] * (x2D[1] + xmin) + invR[j,2] * (x2D[2] + ymin) + invR[j,3] * z  # invR * [x2D[1],x2D[2],z]
+                    x3D[j] = invR[j,1] * (x2D[1] + xmin) + invR[j,2] * (x2D[2] + ymin) + invR[j,3] * (z + z_offset) # invR * [x2D[1],x2D[2],z]
                     ## now x3D is the coordinate of the point in the displaced mesh
                     ## we also need the x3D in the original mesh
                 end
@@ -541,19 +512,28 @@ function perform_simple_plane_cuts(target_folder_cut, Solution, plane_points, cu
                 return nothing
             end
 
+            # evaluate u on deformed mesh
+            # 2D coordinates on uniform cut mesh need to be transformed to 3D coordinates in displaced 3D grid by xtrafo
             interpolate!(CutSolution_u[1], Solution[1]; xtrafo = xtrafo!, start_cell = start_cell, not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
 
-            ## PROBLEM: this interpolates the gradient on the deformed mesh
-            ##          how to transform it to the gradient on the original mesh?
+            ## evaluate ∇u on deformed mesh
+            ## since we interpolate on faces of tetrahedrons wehere the gradient jumps
+            ## we evaluate on both sides of the faces and take some averaging
+            ## to ensure that the interpolate! functions evaluates on the correct side
+            ## we add some negative and positive offset to the z coordinate and call the interpolate! two times
+            z_offset = - z_error
             interpolate!(CutSolution_∇u[1], Solution[1]; operator = Gradient, start_cell = start_cell, xtrafo = xtrafo!, not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
+            z_offset = z_error
+            interpolate!(CutSolution_∇u2[1], Solution[1]; operator = Gradient, start_cell = start_cell, xtrafo = xtrafo!, not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
             if length(Solution) > 1
                 interpolate!(CutSolution_P[1], Solution[2]; start_cell = start_cell, xtrafo = xtrafo!, not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
             end
 
-            gradmatrix = zeros(Float64,3,3)
+            ## postprocess gradient to gradients on undisplaced mesh
+            ## and calculat strain values
             for j = 1 : nnodes_uni
                 for k = 1 : 9
-                    gradient[k] = CutSolution_∇u.entries[(k-1)*nnodes_uni + j]
+                    gradient[k] = (CutSolution_∇u.entries[(k-1)*nnodes_uni + j] + CutSolution_∇u2.entries[(k-1)*nnodes_uni + j])/2
                 end
                 ## phi = x + u(x) 
                 ## dphi/dx = I + grad_x(u) =: F
@@ -569,7 +549,7 @@ function perform_simple_plane_cuts(target_folder_cut, Solution, plane_points, cu
                 ## inv(I - grad_phi(u)) - I = grad_x(u)
 
                 ###
-                gradmatrix .= (inv([1-gradient[1] gradient[2] gradient[3];
+                gradmatrix = (inv([1-gradient[1] gradient[2] gradient[3];
                               gradient[4] 1-gradient[5] gradient[6];
                               gradient[7] gradient[8] 1-gradient[9]]) - [1 0 0;0 1 0; 0 0 1])'
                 for k = 1 : 9

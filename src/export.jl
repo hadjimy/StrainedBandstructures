@@ -47,12 +47,12 @@ function exportVTK(filename, Displacement::FEVectorBlock{T,Tv,Ti,FEType,APT}, Po
 
     ## write solution to vtk (unbended and bended)
     kwargs = Dict()
-    views_displacements = nodevalues_view(Solution_plot[1])
-    A = [views_displacements[1],views_displacements[2],views_displacements[3]]
     kwargs[:cellregions] = xgrid_plot[CellRegions]
-    kwargs[:displacement_X] = views_displacements[1]
-    kwargs[:displacement_Y] = views_displacements[2]
-    kwargs[:displacement_Z] = views_displacements[3]
+    #views_displacements = nodevalues_view(Solution_plot[1])
+    #kwargs[:displacement_X] = views_displacements[1]
+    #kwargs[:displacement_Y] = views_displacements[2]
+    #kwargs[:displacement_Z] = views_displacements[3]
+    kwargs[:displacement] = view(nodevalues(Solution_plot[1], Identity),:,:)
     kwargs[:grad_displacement] = view(nodevalues(Solution_plot[1], Gradient),:,:)
     kwargs[:strain] = view(nodevalues(Solution_plot[2], Identity),:,:)
     if Polarisation !== nothing
