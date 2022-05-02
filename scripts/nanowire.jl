@@ -19,7 +19,8 @@ using Pardiso
 # configure Watson
 @quickactivate "NanoWiresJulia" # <- project name
 # set parameters that should be included in filename
-watson_accesses = ["mstruct", "geometry", "scenario", "shell_x", "stressor_x", "full_nonlin", "nrefs", "femorder", "femorder_P"]
+#watson_accesses = ["mstruct", "geometry", "scenario", "shell_x", "stressor_x", "full_nonlin", "nrefs", "femorder", "femorder_P"]
+watson_accesses = ["geometry", "nrefs", "femorder", "uniform_grid", "interface_refinement", "z_levels_dist"]
 watson_allowedtypes = (Real, String, Symbol, Array, DataType)
 watson_datasubdir = "nanowire"
 
@@ -47,6 +48,9 @@ function get_defaults()
         "fully_coupled" => false,               # parameter for later when we have the full model
         "postprocess" => false,                 # angle calculation, vtk files, cuts
         "linsolver" => ExtendableSparse.MKLPardisoLU, # linear solver (try ExtendableSparse.MKLPardisoLU or ExtendableSparse.LUFactorization)
+        "uniform_grid" => true,                 # uniform grid in z direction or nonuniform grid with local refinement at cut levels
+        "interface_refinement" => false,        # enables a finer grid at material interface for each cross-section
+        "z_levels_dist" => 10,
     )
     return params
 end
@@ -54,6 +58,7 @@ end
 function set_params!(d; kwargs...)
     for (k,v) in kwargs
         d[String(k)]=v
+        d["cut_levels"] = [0.3,0.4,0.5,0.6,0.7]*d["geometry"][4]   # z-level locations of cuts
     end
     return nothing
 end
@@ -140,11 +145,20 @@ function main(d = nothing; verbosity = 0, Plotter = nothing, force::Bool = false
         geometry[1] /= 2
         geometry[2] /= 2
         geometry[3] = 6.5
-        xgrid = nanowire_tensorgrid(; scale = geometry, nrefs = nrefs)
+        if d["uniform_grid"] == true
+            cut_levels = nothing
+        else
+            cut_levels = d["cut_levels"]
+        end
+        if d["interface_refinement"] == true
+            α = geometry[2]/6
+        else
+            α = nothing
+        end
+        xgrid = nanowire_tensorgrid(; scale = geometry, nrefs = nrefs, cut_levels = cut_levels, α = α, z_levels_dist = d["z_levels_dist"])
     end
     #xgrid = nanowire_grid(; scale = geometry)
-    gridplot(xgrid; Plotter=Plotter)
-
+    #gridplot(xgrid; Plotter=Plotter)
     @show xgrid
 
 
@@ -158,7 +172,12 @@ function main(d = nothing; verbosity = 0, Plotter = nothing, force::Bool = false
     subiterations = [[1]]
 
     ## add Dirichlet boundary data on front
-    add_boundarydata!(Problem, 1, [4,5], HomogeneousDirichletBoundary) # 4 = core bottom
+    if d["interface_refinement"] == true
+        regions_bc = [6,7] # 6 = core bottom, 7 = shell bottom
+    else
+        regions_bc = [4,5]  # 4 = core bottom, 5 = shell bottom
+    end
+    add_boundarydata!(Problem, 1, regions_bc, HomogeneousDirichletBoundary)
 
     ## add (nonlinear) operators for displacement equation
     for r = 1 : nregions
@@ -207,13 +226,23 @@ function main(d = nothing; verbosity = 0, Plotter = nothing, force::Bool = false
 
     ## call solver
     @unpack nsteps, tres, maxits, linsolver = d
-    Solution, residual = solve_by_embedding(Problem, xgrid, parameters;
-                    subiterations = subiterations,
-                    nsteps = [nsteps, 1],
-                    linsolver = linsolver,
-                    FETypes = [FEType_D, FEType_P],
-                    target_residual = [tres, tres],
-                    maxiterations = [maxits, 1])
+    if polarisation
+        Solution, residual = solve_by_embedding(Problem, xgrid, parameters;
+                        subiterations = subiterations,
+                        nsteps = [nsteps, 1],
+                        linsolver = linsolver,
+                        FETypes = [FEType_D, FEType_P],
+                        target_residual = [tres, tres],
+                        maxiterations = [maxits, 1])
+    else
+        Solution, residual = solve_by_embedding(Problem, xgrid, parameters;
+                        subiterations = subiterations,
+                        nsteps = [nsteps],
+                        linsolver = linsolver,
+                        FETypes = [FEType_D],
+                        target_residual = [tres],
+                        maxiterations = [maxits])
+    end
 
     ## add computed data to dict
     resultd = deepcopy(d)
@@ -227,7 +256,7 @@ function main(d = nothing; verbosity = 0, Plotter = nothing, force::Bool = false
     ### POSTPROCESS ###
     ###################
     if d["postprocess"]
-        postprocess(filename; Plotter = Plotter)
+        postprocess(filename; Plotter = nothing, cut_levels = geometry[4]/2)
     else
         @info "skipping postprocessing... start it manually with: nanowire.postprocess(\"$filename\"; Plotter = PyPlot)"
     end
@@ -351,7 +380,7 @@ function postprocess(filename = nothing; Plotter = nothing, cut_levels = "auto",
     diam = geometry[1] + geometry[2]
     plane_points = [[-0.25*diam,-0.25*diam],[0.25*diam,-0.25*diam],[-0.25*diam,0.25*diam]] # = [X,Y] coordinates of the three points that define the cut plane
     if simple_cuts # needs grid that triangulates cut_levels
-        perform_simple_plane_cuts(datadir(watson_datasubdir, filename_cuts), solution, plane_points, cut_levels; eps_gfind = 1e-10, only_localsearch = true, strain_model = strainm, Plotter = Plotter)
+        perform_simple_plane_cuts(datadir(watson_datasubdir, filename_cuts), solution, plane_points, cut_levels; eps_gfind = 1e-10, only_localsearch = true, strain_model = strainm, Plotter = Plotter, upscaling = upscaling)
     else
         perform_plane_cuts(datadir(watson_datasubdir, filename_cuts), solution, plane_points, cut_levels; strain_model = strainm, cut_npoints = cut_npoints, vol_cut = vol_cut, Plotter = Plotter)
     end

@@ -245,18 +245,35 @@ function get_cutgrids(xgrid, plane_equation_coeffs; npoints = 100, vol_cut = 1.0
 end
 
 
-function perform_simple_plane_cuts(target_folder_cut, Solution, plane_points, cut_levels; 
+function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_points, cut_levels; 
     strain_model = NonlinearStrain3D, 
     export_uniform_data = true,
     cut_npoints = 200, 
     only_localsearch = true,
     eps_gfind = 1e-11,
     Plotter = nothing,
+    upscaling = 0,
     do_simplecut_plots = Plotter !== nothing,
     do_uniformcut_plots = Plotter !== nothing)
 
-    xgrid = Solution[1].FES.xgrid
 
+    if upscaling > 0
+        xgrid_original = Solution_original[1].FES.xgrid
+        xgrid = uniform_refine(xgrid_original, upscaling)
+        FESup = FESpace{eltype(Solution_original[1].FES)}(xgrid)
+        #FESup = [FESpace{eltype(Solution_original[1].FES)}(xgrid), FESpace{eltype(Solution_original[2].FES)}(xgrid)]
+        Solution = FEVector{Float64}(["u (upscaled)", "P (upscaled)"], FESup)
+        @info "INTERPOLATING TO UPSCALED GRID..."
+        interpolate!(Solution[1], Solution_original[1])
+        interpolate!(Solution[2], Solution_original[2])
+        @info "STARTING CUTTING..."
+    else
+        Solution = Solution_original
+        xgrid = Solution_original[1].FES.xgrid
+    end
+
+    gridplot(xgrid; Plotter=Plotter)
+    
     ### first find faces that lie in cut_levels
 
     # faces with all nodes with the same z-coordinate are assigned to a z-level (otherwise z-level -1 is set)
@@ -428,10 +445,11 @@ function perform_simple_plane_cuts(target_folder_cut, Solution, plane_points, cu
                     Plotter.savefig(target_folder_cut * "simple_cut_$(cut_level)_$(labels[j]).png")
                 end
             end
+            component_names = ["XX","YY","ZZ","YZ","XZ","XY"]
             for k = 1 : 6
-                scalarplot(cut_grid2D, view(nodevals_ϵu,k,:), Plotter = Plotter; title = "ϵu[$k] on cut", fignumber = 1)
+                scalarplot(cut_grid2D, view(nodevals_ϵu,k,:), Plotter = Plotter; title = "ϵ_$(component_names[k]) on cut", fignumber = 1)
                 if isdefined(Plotter,:savefig)
-                    Plotter.savefig(target_folder_cut * "simple_cut_$(cut_level)_ϵ$k.png")
+                    Plotter.savefig(target_folder_cut * "simple_cut_$(cut_level)_ϵ$(component_names[k]).png")
                 end
             end
         end
@@ -490,6 +508,7 @@ function perform_simple_plane_cuts(target_folder_cut, Solution, plane_points, cu
             CutSolution_u = FEVector{Float64}("u (on 2D cut at z = $(cut_level))", FES2D)
             CutSolution_∇u = FEVector{Float64}("∇u (on 2D cut at z = $(cut_level))", FES2D_∇u)
             CutSolution_∇u2 = FEVector{Float64}("∇u (on 2D cut at z = $(cut_level))", FES2D_∇u)
+            CutSolution_∇u3 = FEVector{Float64}("∇u (on 2D cut at z = $(cut_level))", FES2D_∇u)
             CutSolution_ϵu = FEVector{Float64}("ϵ(u) (on 2D cut at z = $(cut_level))", FES2D_ϵ)
             CutSolution_P = FEVector{Float64}("P (on 2D cut at z = $(cut_level))", FES2D_P)
 
@@ -525,16 +544,26 @@ function perform_simple_plane_cuts(target_folder_cut, Solution, plane_points, cu
             interpolate!(CutSolution_∇u[1], Solution[1]; operator = Gradient, start_cell = start_cell, xtrafo = xtrafo!, not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
             z_offset = z_error
             interpolate!(CutSolution_∇u2[1], Solution[1]; operator = Gradient, start_cell = start_cell, xtrafo = xtrafo!, not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
+            z_offset = 0
+            interpolate!(CutSolution_∇u3[1], Solution[1]; operator = Gradient, start_cell = start_cell, xtrafo = xtrafo!, not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
             if length(Solution) > 1
                 interpolate!(CutSolution_P[1], Solution[2]; start_cell = start_cell, xtrafo = xtrafo!, not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
             end
 
             ## postprocess gradient to gradients on undisplaced mesh
-            ## and calculat strain values
+            ## and calculate strain values
+            gradient1 = zeros(Float64,9)
+            gradient2 = zeros(Float64,9)
+            gradient3 = zeros(Float64,9)
             for j = 1 : nnodes_uni
                 for k = 1 : 9
                     gradient[k] = (CutSolution_∇u.entries[(k-1)*nnodes_uni + j] + CutSolution_∇u2.entries[(k-1)*nnodes_uni + j])/2
+                    gradient1[k] = CutSolution_∇u.entries[(k-1)*nnodes_uni + j]
+                    gradient2[k] = CutSolution_∇u2.entries[(k-1)*nnodes_uni + j]
+                    gradient3[k] = CutSolution_∇u3.entries[(k-1)*nnodes_uni + j]
                 end
+                @show gradient1, gradient2, gradient3
+
                 ## phi = x + u(x) 
                 ## dphi/dx = I + grad_x(u) =: F
                 ## grad_phi(u) we have evaluated above
@@ -549,9 +578,9 @@ function perform_simple_plane_cuts(target_folder_cut, Solution, plane_points, cu
                 ## inv(I - grad_phi(u)) - I = grad_x(u)
 
                 ###
-                gradmatrix = (inv([1-gradient[1] gradient[2] gradient[3];
-                              gradient[4] 1-gradient[5] gradient[6];
-                              gradient[7] gradient[8] 1-gradient[9]]) - [1 0 0;0 1 0; 0 0 1])'
+                gradmatrix = (-inv([gradient[1]-1 gradient[2] gradient[3];
+                              gradient[4] gradient[5]-1 gradient[6];
+                              gradient[7] gradient[8] gradient[9]-1]) - [1 0 0;0 1 0; 0 0 1])'
                 for k = 1 : 9
                     CutSolution_∇u.entries[(k-1)*nnodes_uni + j] = gradmatrix[k]
                 end
@@ -563,12 +592,12 @@ function perform_simple_plane_cuts(target_folder_cut, Solution, plane_points, cu
 
             ## write material map into txt files
             @info "Writing material map file..."
-            filename_material = target_folder_cut * "uniform_cut_$(cut_level)_materialmap.txt"
+            filename_material = target_folder_cut * "map.dat"
             io = open(filename_material, "w")
             xCellNodesUni = xgrid_uni[CellNodes]
             nnodes_uni = size(xCoordinatesUni,2)
             xdim = size(xCoordinatesUni,1)
-            @printf(io, "WIRE STRESSOR OUTSIDE X Y\n")
+            #@printf(io, "CORE STRESSOR OUTSIDE X Y\n")
             cell::Int = 0
             region::Int = 0
             x3D = zeros(Float64,3)
@@ -601,13 +630,15 @@ function perform_simple_plane_cuts(target_folder_cut, Solution, plane_points, cu
                 if region == 1
                     @printf(io, "1 0 0 ")
                 elseif region == 2
+                    @printf(io, "1 0 0 ")
+                elseif region == 3
                     @printf(io, "0 1 0 ")
                 elseif region == 0
                     @printf(io, "0 0 1 ")
                 end
-                for j = 1 : xdim
-                    @printf(io, "%.6f ",xCoordinatesUni[j,n])
-                end
+                #for j = 1 : xdim
+                #    @printf(io, "%.6f ",xCoordinatesUni[j,n])
+                #end
                 @printf(io, "\n")
             end
             close(io)
@@ -625,32 +656,25 @@ function perform_simple_plane_cuts(target_folder_cut, Solution, plane_points, cu
             ExtendableGrids.writeVTK(target_folder_cut * "uniform_cut_$(cut_level)_data.vtu", xgrid_uni; kwargs...)
            
 
-            ## write material map into txt files
-            component_names = ["eXX","eYY","eZZ","eYZ","eXZ","eXY"]
-            for c = 1 : 6
-                @info "Writing strain distribution file for $(component_names[c])..."
-                filename_eAB = target_folder_cut * "uniform_cut_$(cut_level)_" * component_names[c] * ".txt"
-                io = open(filename_eAB, "w")
-                @printf(io, "%s\n", component_names[c])
-                for n = 1 : nnodes_uni
-                    @printf(io, "%.6f\n",CutSolution_ϵu.entries[(c-1)*nnodes_uni+n])
-                end
-                close(io)
-            end
-            @info "Writing strain distribution file for eYZ-eYX..."
-            filename_eYZ_eYX = target_folder_cut * "uniform_cut_$(cut_level)_eYZ-eYX.txt"
-            io = open(filename_eYZ_eYX, "w")
-            @printf(io, "eYZ-eYX\n")
-            for n = 1 : nnodes_uni
-                @printf(io, "%.6f\n",CutSolution_ϵu.entries[3*nnodes_uni+n] - CutSolution_ϵu.entries[5*nnodes_uni+n])
-            end
-            close(io)
-
             ## replacing NaN with 1e30 so that min/max calculation works
             replace!(CutSolution_u.entries, NaN=>1e30)
             replace!(CutSolution_∇u.entries, NaN=>1e30)
             replace!(CutSolution_ϵu.entries, NaN=>1e30)
             replace!(CutSolution_P.entries, NaN=>1e30)
+
+            ## write material map into txt files
+            component_names = ["XX","YY","ZZ","YZ","XZ","XY"]
+            component_names = ["eXX","eYY","eZZ","eYZ","eXZ","eXY"]
+            for c = 1 : 6
+                @info "Writing strain distribution file for $(component_names[c])..."
+                filename_eAB = target_folder_cut * 'e' * component_names[c] * ".dat"
+                io = open(filename_eAB, "w")
+                #@printf(io, "%s\n", component_names[c])
+                for n = 1 : nnodes_uni
+                    @printf(io, "%.6f\n",CutSolution_ϵu.entries[(c-1)*nnodes_uni+n])
+                end
+                close(io)
+            end
 
             ## plot displacement, strain and polarisation on uniform cut grid
             if do_uniformcut_plots
@@ -705,9 +729,9 @@ function perform_simple_plane_cuts(target_folder_cut, Solution, plane_points, cu
                     end
                 end
                 for k = 1 : 6
-                    scalarplot(xgrid_uni, view(CutSolution_ϵu.entries,(k-1)*nnodes_uni+1:k*nnodes_uni), Plotter = Plotter; flimits = (ϵmin[k],ϵmax[k]), title = "ϵu[$k] on cut", fignumber = 1)
+                    scalarplot(xgrid_uni, view(CutSolution_ϵu.entries,(k-1)*nnodes_uni+1:k*nnodes_uni), Plotter = Plotter; flimits = (ϵmin[k],ϵmax[k]), title = "ϵ_$(component_names[k]) on cut", fignumber = 1)
                     if isdefined(Plotter,:savefig)
-                        Plotter.savefig(target_folder_cut * "uniform_cut_$(cut_level)_ϵ$k.png")
+                        Plotter.savefig(target_folder_cut * "uniform_cut_$(cut_level)_ϵ$(component_names[k]).png")
                     end
                 end
             end
