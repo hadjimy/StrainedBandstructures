@@ -566,13 +566,13 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
                 ## inv(I - grad_phi(u)) - I = grad_x(u)
 
                 ###
-                gradmatrix = (-inv([gradient[1]-1 gradient[2] gradient[3];
-                              gradient[4] gradient[5]-1 gradient[6];
-                              gradient[7] gradient[8] gradient[9]-1]) - [1 0 0;0 1 0; 0 0 1])'
-                for k = 1 : 9
-                    CutSolution_∇u.entries[(k-1)*nnodes_uni + j] = gradmatrix[k]
-                end
-                eval_strain!(strain, view(gradmatrix,:), strain_model)
+                #gradmatrix = (-inv([gradient[1]-1 gradient[2] gradient[3];
+                #              gradient[4] gradient[5]-1 gradient[6];
+                #              gradient[7] gradient[8] gradient[9]-1]) - [1 0 0;0 1 0; 0 0 1])'
+                #for k = 1 : 9
+                #    CutSolution_∇u.entries[(k-1)*nnodes_uni + j] = gradmatrix[k]
+                #end
+                eval_strain!(strain, gradient, strain_model)
                 for k = 1 : 6
                     CutSolution_ϵu.entries[(k-1)*nnodes_uni + j] = strain[k]
                 end
