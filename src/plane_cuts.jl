@@ -269,6 +269,7 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
         @info "STARTING CUTTING..."
     else
         Solution = Solution_original
+        DisplacementGradient = continuify(Solution[1], Gradient)
         xgrid = Solution_original[1].FES.xgrid
     end
 
@@ -401,10 +402,9 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
         cut_grid[BFaceNodes] = zeros(Int32,2,0)
         cut_grid[BFaceGeometries] = VectorOfConstants{ElementGeometries,Int}(Edge1D, 0)
 
-
         ## interpolate data on cut_grid
         @info "Interpolating data on cut mesh..."
-        nodevals_gradient = nodevalues(Solution[1], Gradient; nodes = nodes4level)
+        nodevals_gradient = nodevalues(DisplacementGradient[1], Identity; nodes = nodes4level)
         nodevals_ϵu = zeros(Float64,6,nnodes_cut)
         
         ## calculate strain from gradient interpolation on cut
@@ -540,29 +540,17 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
             ## we evaluate on both sides of the faces and take some averaging
             ## to ensure that the interpolate! functions evaluates on the correct side
             ## we add some negative and positive offset to the z coordinate and call the interpolate! two times
-            z_offset = - z_error
-            interpolate!(CutSolution_∇u[1], Solution[1]; operator = Gradient, start_cell = start_cell, xtrafo = xtrafo!, not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
-            z_offset = z_error
-            interpolate!(CutSolution_∇u2[1], Solution[1]; operator = Gradient, start_cell = start_cell, xtrafo = xtrafo!, not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
-            z_offset = 0
-            interpolate!(CutSolution_∇u3[1], Solution[1]; operator = Gradient, start_cell = start_cell, xtrafo = xtrafo!, not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
+            interpolate!(CutSolution_∇u[1], DisplacementGradient[1]; start_cell = start_cell, xtrafo = xtrafo!, not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
             if length(Solution) > 1
                 interpolate!(CutSolution_P[1], Solution[2]; start_cell = start_cell, xtrafo = xtrafo!, not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
             end
 
             ## postprocess gradient to gradients on undisplaced mesh
             ## and calculate strain values
-            gradient1 = zeros(Float64,9)
-            gradient2 = zeros(Float64,9)
-            gradient3 = zeros(Float64,9)
             for j = 1 : nnodes_uni
                 for k = 1 : 9
-                    gradient[k] = (CutSolution_∇u.entries[(k-1)*nnodes_uni + j] + CutSolution_∇u2.entries[(k-1)*nnodes_uni + j])/2
-                    gradient1[k] = CutSolution_∇u.entries[(k-1)*nnodes_uni + j]
-                    gradient2[k] = CutSolution_∇u2.entries[(k-1)*nnodes_uni + j]
-                    gradient3[k] = CutSolution_∇u3.entries[(k-1)*nnodes_uni + j]
+                    gradient[k] = CutSolution_∇u.entries[(k-1)*nnodes_uni + j]
                 end
-                @show gradient1, gradient2, gradient3
 
                 ## phi = x + u(x) 
                 ## dphi/dx = I + grad_x(u) =: F

@@ -18,7 +18,7 @@ Triangulate = "f7e6ffb2-c36d-4f8f-a77e-16e897189344"
 
 [compat]
 ExtendableGrids = "0.9.3"
-GradientRobustMultiPhysics = "0.9.6"
+GradientRobustMultiPhysics = "0.9.8"
 GridVisualize = "0.5.0"
 Pardiso = "0.5.3"
 SimplexGridFactory = "0.5.10"

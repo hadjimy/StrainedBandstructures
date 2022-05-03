@@ -228,9 +228,9 @@ version = "0.4.2"
 
 [[GradientRobustMultiPhysics]]
 deps = ["DiffResults", "DocStringExtensions", "ExtendableGrids", "ExtendableSparse", "ForwardDiff", "GridVisualize", "LinearAlgebra", "Logging", "Printf", "SparseArrays", "SparseDiffTools", "SparsityDetection", "StaticArrays", "SuiteSparse", "Test"]
-git-tree-sha1 = "7af8133df9976a9021d8807ec40d841dddb71c03"
+git-tree-sha1 = "28540cc010c27036d10013a120a66e1f50000080"
 uuid = "0802c0ca-1768-4022-988c-6dd5f9588a11"
-version = "0.9.6"
+version = "0.9.8"
 
 [[Graphs]]
 deps = ["ArnoldiMethod", "Compat", "DataStructures", "Distributed", "Inflate", "LinearAlgebra", "Random", "SharedArrays", "SimpleTraits", "SparseArrays", "Statistics"]
@@ -434,12 +434,6 @@ deps = ["Pkg"]
 git-tree-sha1 = "a7a7e1a88853564e551e4eba8650f8c38df79b37"
 uuid = "eebad327-c553-4316-9ea0-9fa01ccd7688"
 version = "0.1.1"
-
-[[PlutoVista]]
-deps = ["ColorSchemes", "Colors", "DocStringExtensions", "GridVisualize", "HypertextLiteral", "UUIDs"]
-git-tree-sha1 = "2435d1d3e02db324414f268f30999b5c06a0d10f"
-uuid = "646e1f28-b900-46d7-9d87-d554eb38a413"
-version = "0.8.12"
 
 [[PooledArrays]]
 deps = ["DataAPI", "Future"]
