@@ -26,7 +26,7 @@ export repair_grid!
 
 include("grids.jl")
 export bimetal_strip3D, bimetal_strip2D, bimetal_strip3D_middle_layer, bimetal_tensorgrid
-export condensator3D, condensator2D
+export condensator3D, condensator3D_tensorgrid, condensator2D
 export nonpolarquantumwell3D, nonpolarquantumwell2D
 export nanowire_grid, nanowire_tensorgrid
 

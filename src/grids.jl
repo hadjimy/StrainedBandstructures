@@ -60,7 +60,7 @@ end
 
 function bimetal_strip3D_middle_layer(; material_border = 0.5, scale = [1,1,1], anisotropy = [1,1,2], reflevel = 1, maxvol1 = prod(scale./anisotropy)/8, maxvol2 = prod(scale./anisotropy))
 
-    @info "Generating bimetal grid for scale = $scale"
+    @info "Generating bimetal sandwich grid for scale = $scale"
     scale ./= anisotropy
     builder=SimplexGridBuilder(Generator=TetGen)
     y = 5
@@ -199,71 +199,165 @@ function bimetal_strip2D(; material_border = 0.5, scale = [1,1], anisotropy = [1
 end
 
 
-function condensator3D(; A = 50, B = 100, Z = 20, d = 5, reflevel = 1, maxvol1 = Z*B*d/4, maxvol2 = Z*B*d/4)
+function condensator3D(; scale=[50,50,50], d = 5, nrefs = 1, maxvol1 = prod(scale)/4, maxvol2 = scale[1]*scale[2]*d/4)
 
     builder=SimplexGridBuilder(Generator=TetGen)
 
-    @info "Generating 3d condensator grid for A = $A, B = $B, Z = $Z, d = $d"
+    @info "Generating 3D condensator grid for scale = $scale and middle layer width = $d."
 
-    # bottom side at Z = 0
+	X = scale[1]
+	Y = scale[2]
+	Z = scale[3]
+
+    # side at y = 0
     p1=point!(builder,0,0,0)
-    p2=point!(builder,B,0,0)
-    p3=point!(builder,B,0,A)
-    p4=point!(builder,B,0,A+d)
-    p5=point!(builder,B,0,2*A+d)
-    p6=point!(builder,0,0,2*A+d)
-    p7=point!(builder,0,0,A+d)
-    p8=point!(builder,0,0,A)
+    p2=point!(builder,X,0,0)
+    p3=point!(builder,X,0,Z)
+    p4=point!(builder,X,0,Z+d)
+    p5=point!(builder,X,0,2*Z+d)
+    p6=point!(builder,0,0,2*Z+d)
+    p7=point!(builder,0,0,Z+d)
+    p8=point!(builder,0,0,Z)
 
-    # top side at Z
-    p9=point!(builder,0,Z,0)
-    p10=point!(builder,B,Z,0)
-    p11=point!(builder,B,Z,A)
-    p12=point!(builder,B,Z,A+d)
-    p13=point!(builder,B,Z,2*A+d)
-    p14=point!(builder,0,Z,2*A+d)
-    p15=point!(builder,0,Z,A+d)
-    p16=point!(builder,0,Z,A)
+    # side at y = Y
+    p9=point!(builder,0,Y,0)
+    p10=point!(builder,X,Y,0)
+    p11=point!(builder,X,Y,Z)
+    p12=point!(builder,X,Y,Z+d)
+    p13=point!(builder,X,Y,2*Z+d)
+    p14=point!(builder,0,Y,2*Z+d)
+    p15=point!(builder,0,Y,Z+d)
+    p16=point!(builder,0,Y,Z)
 
     facetregion!(builder,1) # bottom of bottom cube
-    facet!(builder,p1 ,p9, p10, p2)
+    facet!(builder,p1,p9,p10,p2)
     facetregion!(builder,2) # front, back, left and right boundary of bottom cube
     facet!(builder,p1,p2,p3,p8)
     facet!(builder,p10,p9,p16,p11)
     facet!(builder,p2,p10,p11,p3)
     facet!(builder,p9,p1,p8,p16)
 
-    facetregion!(builder,2) # gap boundary front, back, left and right
-    facet!(builder,p8 ,p3, p4, p7)
-    facet!(builder,p11 ,p16, p15, p12)
-    facet!(builder,p3 ,p11, p12, p4)
-    facet!(builder,p16 ,p8, p7, p15)
+    facetregion!(builder,3) # gap boundary front, back
+    facet!(builder,p8,p3,p4,p7)
+    facet!(builder,p11,p16,p15,p12)
+    facetregion!(builder,4) # gap boundary left and right
+    facet!(builder,p3,p11,p12,p4)
+    facet!(builder,p16,p8,p7,p15)
 
-    facetregion!(builder,3) # boundary of top cube (front, back, left, top, right)
-    facet!(builder,p7, p4, p5, p6)
-    facet!(builder,p12, p15, p14, p13)
-    facet!(builder,p4, p12, p13, p5)
-    facet!(builder,p6, p5, p13, p14)
+    facetregion!(builder,5) # boundary of top cube (front, back, left, right)
+    facet!(builder,p7,p4,p5,p6)
+    facet!(builder,p12,p15,p14,p13)
+    facet!(builder,p4,p12,p13,p5)
     facet!(builder,p15,p7,p6,p14)
+    facetregion!(builder,6) # boundary of top cube (top)
+    facet!(builder,p6,p5,p13,p14)
 
-    facetregion!(builder,99) # interior facets to split materials
-    facet!(builder,p8, p3, p11, p16)
-    facet!(builder,p7, p4, p12, p15)
+    #facetregion!(builder,7) # interior facets to split materials
+    facet!(builder,p8,p3,p11,p16)
+    facet!(builder,p7,p4,p12,p15)
 
     cellregion!(builder,1) # material 1
     maxvolume!(builder,maxvol1)
-    regionpoint!(builder,(0.5*B,0.5*Z,0.5*A))
-    regionpoint!(builder,(0.5*B,0.5*Z,1.5*A+d))
+    regionpoint!(builder,(0.5*X,0.5*Y,0.5*Z))
+    regionpoint!(builder,(0.5*X,0.5*Y,1.5*Z+d))
 
     cellregion!(builder,2) # material 2
     maxvolume!(builder,maxvol2)
-    regionpoint!(builder,(0.5*B,0.5*Z,A+0.5*d))
+    regionpoint!(builder,(0.5*X,0.5*Y,Z+0.5*d))
 
     xgrid = simplexgrid(builder)
-    xgrid = uniform_refine(xgrid,reflevel)
+    xgrid = uniform_refine(xgrid,nrefs)
 
     return xgrid
 end
+
+
+function condensator3D_tensorgrid(; scale = [50,50,50], d = 10, nrefs = 1)
+
+	@info "Generating 3D condensator tensor grid for scale = $scale and middle layer width = $d."
+
+	builder=SimplexGridBuilder(Generator=Triangulate)
+
+	X = scale[1]
+    Y = scale[2]
+    Z = scale[3]
+    vol_factor_core = 4.0^-nrefs
+    vol_factor_stressor = 4.0^-nrefs
+    hz_factor = 2.0^-nrefs
+	maxvol1 = X*Y*vol_factor_core
+	maxvol2 = X*d*vol_factor_core
+
+    # side at y = 0
+	#p0 = point!(builder,0.5*X,0.5*Y)
+    p1 = point!(builder,0,0)
+    p2 = point!(builder,X,0)
+    #p3 = point!(builder,X,Y-2*d)
+	p4 = point!(builder,X,Y)
+    p5 = point!(builder,X,Y+d)
+	#p6 = point!(builder,X,Y+3*d)
+    p7 = point!(builder,X,2*Y+d)
+    p8 = point!(builder,0,2*Y+d)
+	#p9 = point!(builder,0,Y+3*d)
+    p10 = point!(builder,0,Y+d)
+    p11 = point!(builder,0,Y)
+	#p12 = point!(builder,0,Y-2*d)
+	#p13 = point!(builder,0.5*X,1.5*Y+d)
+	p14 = point!(builder,0.5*X,Y)
+	p15 = point!(builder,0.5*X,Y+d)
+
+	facetregion!(builder,1) # bottom rectangle
+	#facet!(builder,p0,p1)
+	#facet!(builder,p0,p2)
+	#facet!(builder,p0,p3)
+	#facet!(builder,p0,p12)
+	facet!(builder,p1,p2)
+	facet!(builder,p2,p4)
+	facet!(builder,p4,p11)
+	facet!(builder,p11,p1)
+
+	facetregion!(builder,2) # side of middle layer
+    facet!(builder,p4,p5)
+	facet!(builder,p10,p11)
+
+	facetregion!(builder,1) # top rectangle
+	#facet!(builder,p9,p7)
+	#facet!(builder,p9,p4)
+	#facet!(builder,p9,p5)
+	#facet!(builder,p9,p6)
+    facet!(builder,p5,p7)
+	facet!(builder,p7,p8)
+	facet!(builder,p8,p10)
+	facet!(builder,p10,p5)
+
+	cellregion!(builder,1) # material 1
+    maxvolume!(builder,maxvol1)
+	regionpoint!(builder,(0.5*X,0.5*Y))
+	regionpoint!(builder,(0.5*X,1.5*Y+d))
+
+    cellregion!(builder,2) # material 2
+	maxvolume!(builder,maxvol2)
+    regionpoint!(builder,(0.5*X,Y+0.5*d))
+
+	xgrid = simplexgrid(builder)
+
+    hz = 100/nrefs * hz_factor
+    z_levels = 0:hz:Z
+    z_levels_nonuniform = Vector{Any}(z_levels)
+    z_levels_nonuniform = vcat(z_levels_nonuniform...)
+
+    xgrid = simplexgrid(xgrid, z_levels_nonuniform; bot_offset=2, top_offset=4)
+	#xgrid = uniform_refine(xgrid,nrefs)
+    # the offsets lead to the following boundary regions:
+    # 1 = side core (not seen from outside)
+    # 2 = side stressor
+    # 3 = bottom core
+    # 4 = bottom stressor
+    # 5 = top core
+    # 6 = top stressor
+
+    return xgrid
+end
+
 
 
 function condensator2D(; A = 50, B = 100, d = 5, reflevel = 1, maxvol1 = B*d/4, maxvol2 = B*d/4)
@@ -622,7 +716,7 @@ function nanowire_tensorgrid(; scale = [1,1,1,1], nrefs = 1, cut_levels = scale[
     A_core = 3*sqrt(3)/2 * scale[1]^2
     A_shell = 3*sqrt(3)/2 * (scale[2]^2 + 2*scale[1]*scale[2])
     A_stressor = sqrt(3)/2 * scale[3] * (7*(scale[1]+scale[2]) + 3*scale[3])
-    if α !=nothing
+    if α !== nothing
         A_interface = 3*(d2 * sqrt(3)/2*α)
         A_shell = A_shell - A_interface
         A_stressor = A_stressor - A_interface
@@ -646,7 +740,7 @@ function nanowire_tensorgrid(; scale = [1,1,1,1], nrefs = 1, cut_levels = scale[
     p13 = point!(builder,d2/2+δ/sqrt(3),-sqrt(3)/2*d2-δ)
     p14 = point!(builder,-d2/2-δ/sqrt(3),-sqrt(3)/2*d2-δ)
 
-    if α != nothing
+    if α !== nothing
         xstar = α/2 + d2*(1 - sqrt(3)*α/(4*δ))
         ystar = - α*(2*sqrt(3)*δ + 3*d2)/(4*δ)
         p15 = point!(builder,-d2+α/2,sqrt(3)/2*α)
@@ -659,7 +753,7 @@ function nanowire_tensorgrid(; scale = [1,1,1,1], nrefs = 1, cut_levels = scale[
         p22 = point!(builder,-xstar,ystar)
     end
 
-    if α != nothing
+    if α !== nothing
         facetregion!(builder,1) # core region
         facet!(builder,p1,p2)
         facet!(builder,p0,p1)
@@ -766,7 +860,7 @@ function nanowire_tensorgrid(; scale = [1,1,1,1], nrefs = 1, cut_levels = scale[
     end
     xgrid = simplexgrid(builder)
 
-    if cut_levels != nothing
+    if cut_levels !== nothing
         hz = 10 * z_levels_dist * hz_factor
         z_levels = 0:hz:scale[4]
         z_levels_nonuniform = Vector{Any}(z_levels)
@@ -788,7 +882,7 @@ function nanowire_tensorgrid(; scale = [1,1,1,1], nrefs = 1, cut_levels = scale[
     end
     z_levels_nonuniform = vcat(z_levels_nonuniform...)
 
-    if α != nothing
+    if α !== nothing
         cellregions = xgrid[CellRegions]
         for i = 1 : num_cells(xgrid)
             if cellregions[i] == 3

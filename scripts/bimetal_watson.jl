@@ -85,12 +85,12 @@ function set_params!(d; kwargs)
     return nothing
 end
 
-function get_data(d = nothing; kwargs...)
+function get_data(d = nothing; kwargs)
     ## load parameter set
     if d === nothing
         d = get_defaults()
-        set_params!(d; kwargs...)
     end
+    set_params!(d; kwargs)
     return d
 end
 
@@ -151,19 +151,22 @@ function main(d::Dict; verbosity = 0)
 
     ## generate bimetal mesh
     dim::Int = length(scale)
-    @assert (femorder in 1:2) || (dim == 2)
+    @assert (femorder in 1:3)
     if dim == 3
         #xgrid = bimetal_strip3D(; material_border = mb, scale = scale)
         #xgrid = uniform_refine(xgrid,nrefs)
-        xgrid = bimetal_tensorgrid(; scale = scale, nrefs = nrefs)
+        #xgrid = bimetal_tensorgrid(; scale = scale, nrefs = nrefs)
+        xgrid = condensator3D(; scale = scale, d = 10, nrefs = nrefs)
+        #xgrid = condensator3D_tensorgrid(; scale = scale, d = 5, nrefs = nrefs)
+        #xgrid = bimetal_strip3D_middle_layer(; scale = scale, reflevel = nrefs)
         if femorder == 1
             FEType = H1P1{3}
         elseif femorder == 2
-            FEType = H1P2{3,3} 
+            FEType = H1P2{3,3}
         elseif femorder == 3
-            FEType = H1P3{3,3} 
+            FEType = H1P3{3,3}
         end
-        dirichlet_regions = [3,4]
+        dirichlet_regions = [1,6]
     else
         xgrid = bimetal_strip2D(; material_border = mb, scale = scale)
         FEType = H1Pk{2,2,femorder}
@@ -218,7 +221,7 @@ end
 
 
 ## load a result dictionary (to browse results in julia)
-function load_data(d = nothing; kwargs...)
+function load_data(d = nothing; kwargs)
     ## complete parameter set
     d = get_data(d; kwargs)
 
@@ -233,7 +236,7 @@ function export_vtk(d = nothing; upscaling = 0, kwargs...)
     filename_vtk = savename(d, ""; allowedtypes = watson_allowedtypes, accesses = watson_accesses)
     solution = d["solution"]
     repair_grid!(solution[1].FES.xgrid)
-    exportVTK(datadir(watson_datasubdir, filename_vtk), solution[1]; upscaling = upscaling, strain_model = d["strainm"])
+    NanoWiresJulia.exportVTK(datadir(watson_datasubdir, filename_vtk), solution[1]; upscaling = upscaling, strain_model = d["strainm"])
 end
 
 function export_cuts(; 
