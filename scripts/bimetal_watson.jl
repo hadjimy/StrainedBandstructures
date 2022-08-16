@@ -17,7 +17,7 @@ using ExtendableSparse
 # configure Watson
 @quickactivate "NanoWiresJulia" # <- project name
 # set parameters that should be included in filename
-watson_accesses = ["scale", "latfac", "femorder", "full_nonlin", "nrefs", "strainm", "mb"] 
+watson_accesses = ["scale", "latfac", "femorder", "full_nonlin", "nrefs", "strainm", "mb", "grid_type"]
 watson_allowedtypes = (Real, String, Symbol, Array, DataType)
 watson_datasubdir = "bimetal_watson"
 
@@ -41,6 +41,7 @@ function run_watson(; dim = 2, force::Bool = false, generate_vtk = true)
         "nrefs" => [1],                            # number of uniform refinements before solve
         "avgc" => [2],                             # lattice number calculation method (average case)
         "linsolver" => ExtendableSparse.MKLPardisoLU, # linear solver (try ExtendableSparse.MKLPardisoLU or ExtendableSparse.LUFactorization)
+        "grid_type" => "default",                  # grid options: default, condensator, condensator_tensorgrid
     )
 
     dicts = dict_list(allparams)
@@ -71,6 +72,7 @@ function get_defaults()
         "nrefs" => 1,                            # number of uniform refinements before solve
         "avgc" => 2,                             # lattice number calculation method (average case)
         "linsolver" => ExtendableSparse.MKLPardisoLU, # linear solver (try ExtendableSparse.MKLPardisoLU or ExtendableSparse.LUFactorization)
+        "grid_type" => "default",                # grid options: default, condensator, condensator_tensorgrid
     )
     dim = length(params["scale"])
     params["strainm"] = dim == 2 ? NonlinearStrain2D : NonlinearStrain3D
@@ -140,7 +142,7 @@ end
 function main(d::Dict; verbosity = 0)
 
     ## unpack paramers
-    @unpack linsolver, latfac, E, ν, misfit_strain, α, full_nonlin, use_emb, nsteps, maxits, tres, scale, mb, femorder, nrefs, strainm, avgc = d
+    @unpack linsolver, latfac, E, ν, misfit_strain, α, full_nonlin, use_emb, nsteps, maxits, tres, scale, mb, femorder, nrefs, strainm, avgc, grid_type = d
     
     ## set log level
     set_verbosity(verbosity)
@@ -153,12 +155,23 @@ function main(d::Dict; verbosity = 0)
     dim::Int = length(scale)
     @assert (femorder in 1:3)
     if dim == 3
-        #xgrid = bimetal_strip3D(; material_border = mb, scale = scale)
-        #xgrid = uniform_refine(xgrid,nrefs)
-        #xgrid = bimetal_tensorgrid(; scale = scale, nrefs = nrefs)
-        xgrid = condensator3D(; scale = scale, d = 10, nrefs = nrefs)
-        #xgrid = condensator3D_tensorgrid(; scale = scale, d = 10, nrefs = nrefs)
-        #xgrid = bimetal_strip3D_middle_layer(; scale = scale, reflevel = nrefs)
+        # default dirichlet regions
+        dirichlet_regions = [3,4] ### DOUBLE CHECK!
+        if grid_type == "default"
+            #xgrid = bimetal_strip3D(; material_border = mb, scale = scale)
+            #xgrid = uniform_refine(xgrid,nrefs)
+            xgrid = bimetal_tensorgrid(; scale = scale, nrefs = nrefs)
+        elseif grid_type == "condensator"
+            xgrid = condensator3D(; scale = scale, d = 10, nrefs = nrefs)
+            dirichlet_regions = [1,2,5,6] # core sides and bottoms
+        elseif grid_type == "condensator_tensorgrid"
+            xgrid = condensator3D_tensorgrid(; scale = scale, d = 10, nrefs = nrefs)
+            #dirichlet_regions = [7] # stressor side
+            dirichlet_regions = [1,2,3,4,5,6] # core sides and bottoms
+        else
+            xgrid = bimetal_strip3D_middle_layer(; scale = scale, reflevel = nrefs)
+        end
+
         if femorder == 1
             FEType = H1P1{3}
         elseif femorder == 2
@@ -166,12 +179,6 @@ function main(d::Dict; verbosity = 0)
         elseif femorder == 3
             FEType = H1P3{3,3}
         end
-        ### for condensator3D_tensorgrid
-        #dirichlet_regions = [7] # stressor side
-        dirichlet_regions = [1,2,3,4,5,6] # core sides and bottoms
-
-        ### for condensator3D
-        dirichlet_regions = [1,2,5,6] # core sides and bottoms
     else
         xgrid = bimetal_strip2D(; material_border = mb, scale = scale)
         FEType = H1Pk{2,2,femorder}
