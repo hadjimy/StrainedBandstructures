@@ -157,7 +157,7 @@ function main(d::Dict; verbosity = 0)
         #xgrid = uniform_refine(xgrid,nrefs)
         #xgrid = bimetal_tensorgrid(; scale = scale, nrefs = nrefs)
         xgrid = condensator3D(; scale = scale, d = 10, nrefs = nrefs)
-        #xgrid = condensator3D_tensorgrid(; scale = scale, d = 5, nrefs = nrefs)
+        #xgrid = condensator3D_tensorgrid(; scale = scale, d = 10, nrefs = nrefs)
         #xgrid = bimetal_strip3D_middle_layer(; scale = scale, reflevel = nrefs)
         if femorder == 1
             FEType = H1P1{3}
@@ -166,7 +166,12 @@ function main(d::Dict; verbosity = 0)
         elseif femorder == 3
             FEType = H1P3{3,3}
         end
-        dirichlet_regions = [1,6]
+        ### for condensator3D_tensorgrid
+        #dirichlet_regions = [7] # stressor side
+        dirichlet_regions = [1,2,3,4,5,6] # core sides and bottoms
+
+        ### for condensator3D
+        dirichlet_regions = [1,2,5,6] # core sides and bottoms
     else
         xgrid = bimetal_strip2D(; material_border = mb, scale = scale)
         FEType = H1Pk{2,2,femorder}
@@ -183,7 +188,12 @@ function main(d::Dict; verbosity = 0)
     add_unknown!(Problem; unknown_name = "u", equation_name = "displacement equation")
     add_operator!(Problem, 1, get_displacement_operator(IsotropicElasticityTensor(λ[1], μ[1], dim), strainm, misfit_strain[1], α[1]; dim = dim, emb = emb, regions = [1], bonus_quadorder = 2*(femorder-1)))
     add_operator!(Problem, 1, get_displacement_operator(IsotropicElasticityTensor(λ[2], μ[2], dim), strainm, misfit_strain[2], α[2]; dim = dim, emb = emb, regions = [2], bonus_quadorder = 2*(femorder-1)))
-    add_boundarydata!(Problem, 1, dirichlet_regions, HomogeneousDirichletBoundary)
+    if length(dirichlet_regions) > 0
+        add_boundarydata!(Problem, 1, dirichlet_regions, HomogeneousDirichletBoundary)
+    else
+        add_constraint!(Problem, FixedDofs(1, [1], [0]))
+        add_operator!(Problem, [1,1], BilinearForm([NormalFlux, NormalFlux]; factor = 1e10, AT = ON_BFACES, regions = [1]))
+    end
     @show Problem
 
     ## solve system with FEM

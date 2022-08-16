@@ -272,88 +272,42 @@ function condensator3D(; scale=[50,50,50], d = 5, nrefs = 1, maxvol1 = prod(scal
 end
 
 
-function condensator3D_tensorgrid(; scale = [50,50,50], d = 10, nrefs = 1)
+function condensator3D_tensorgrid(; scale = [50,50,50], d = 10, nrefs = 2)
 
-	@info "Generating 3D condensator tensor grid for scale = $scale and middle layer width = $d."
+    @info "Generating 3D condensator tensor grid for scale = $scale and middle layer width = $d."
 
-	builder=SimplexGridBuilder(Generator=Triangulate)
-
-	X = scale[1]
+    X = scale[1]
     Y = scale[2]
-    Z = scale[3]
-    vol_factor_core = 4.0^-nrefs
-    vol_factor_stressor = 4.0^-nrefs
+    Z = 2*scale[3] + d
     hz_factor = 2.0^-nrefs
-	maxvol1 = X*Y*vol_factor_core
-	maxvol2 = X*d*vol_factor_core
 
-    # side at y = 0
-	#p0 = point!(builder,0.5*X,0.5*Y)
-    p1 = point!(builder,0,0)
-    p2 = point!(builder,X,0)
-    #p3 = point!(builder,X,Y-2*d)
-	p4 = point!(builder,X,Y)
-    p5 = point!(builder,X,Y+d)
-	#p6 = point!(builder,X,Y+3*d)
-    p7 = point!(builder,X,2*Y+d)
-    p8 = point!(builder,0,2*Y+d)
-	#p9 = point!(builder,0,Y+3*d)
-    p10 = point!(builder,0,Y+d)
-    p11 = point!(builder,0,Y)
-	#p12 = point!(builder,0,Y-2*d)
-	#p13 = point!(builder,0.5*X,1.5*Y+d)
-	p14 = point!(builder,0.5*X,Y)
-	p15 = point!(builder,0.5*X,Y+d)
+    hx = 100*2.0^-nrefs
+    hy = hx
+    XX = 0:hx:X
+    YY = 0:hy:Y
 
-	facetregion!(builder,1) # bottom rectangle
-	#facet!(builder,p0,p1)
-	#facet!(builder,p0,p2)
-	#facet!(builder,p0,p3)
-	#facet!(builder,p0,p12)
-	facet!(builder,p1,p2)
-	facet!(builder,p2,p4)
-	facet!(builder,p4,p11)
-	facet!(builder,p11,p1)
+    xgrid = simplexgrid(XX,YY)
 
-	facetregion!(builder,2) # side of middle layer
-    facet!(builder,p4,p5)
-	facet!(builder,p10,p11)
+    hz = 50 * hz_factor
+    z_levels_nonuniform = Array{Float64,1}(0:hz:scale[3])
+    if nrefs == 1
+        npts = 2*nrefs
+    else
+        npts = nrefs
+    end
+    append!(z_levels_nonuniform, Array{Float64,1}(LinRange(scale[3],scale[3]+d,npts)[2:end-1]))
+    append!(z_levels_nonuniform, Array{Float64,1}(scale[3]+d:hz:Z))
 
-	facetregion!(builder,1) # top rectangle
-	#facet!(builder,p9,p7)
-	#facet!(builder,p9,p4)
-	#facet!(builder,p9,p5)
-	#facet!(builder,p9,p6)
-    facet!(builder,p5,p7)
-	facet!(builder,p7,p8)
-	facet!(builder,p8,p10)
-	facet!(builder,p10,p5)
-
-	cellregion!(builder,1) # material 1
-    maxvolume!(builder,maxvol1)
-	regionpoint!(builder,(0.5*X,0.5*Y))
-	regionpoint!(builder,(0.5*X,1.5*Y+d))
-
-    cellregion!(builder,2) # material 2
-	maxvolume!(builder,maxvol2)
-    regionpoint!(builder,(0.5*X,Y+0.5*d))
-
-	xgrid = simplexgrid(builder)
-
-    hz = 100/nrefs * hz_factor
-    z_levels = 0:hz:Z
-    z_levels_nonuniform = Vector{Any}(z_levels)
-    z_levels_nonuniform = vcat(z_levels_nonuniform...)
-
-    xgrid = simplexgrid(xgrid, z_levels_nonuniform; bot_offset=2, top_offset=4)
-	#xgrid = uniform_refine(xgrid,nrefs)
+    xgrid = simplexgrid(xgrid, z_levels_nonuniform; bot_offset=4, top_offset=5)
+    xgrid = uniform_refine(xgrid,nrefs-1)
     # the offsets lead to the following boundary regions:
-    # 1 = side core (not seen from outside)
-    # 2 = side stressor
-    # 3 = bottom core
-    # 4 = bottom stressor
-    # 5 = top core
-    # 6 = top stressor
+    # 1 - 4 = side core
+    # 5 = bottom core
+    # 6 = tope core
+    # 7 = side stressor
+
+    cellmask!(xgrid,[0.0,0.0,scale[3]],[X,Y,scale[3]+d],2)
+    bfacemask!(xgrid,[0.0,0.0,scale[3]],[X,Y,scale[3]+d],7)
 
     return xgrid
 end
