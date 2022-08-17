@@ -22,7 +22,7 @@ function solve_by_embedding(
     for j = 1 : length(FETypes)
         FES[j] = FESpace{FETypes[j]}(xgrid)
     end
-    Solution = FEVector{Float64}(Problem.unknown_names, FES)
+    Solution = FEVector(FES)
 
     ## prepare parameter embedding
     emb_params_target = deepcopy(emb_params)
@@ -72,7 +72,7 @@ function solve_by_damping(
     for j = 1 : length(FETypes)
         FES[j] = FESpace{FETypes[j]}(xgrid)
     end
-    Solution = FEVector{Float64}(Problem.unknown_names, FES)
+    Solution = FEVector(FES)
     subiterations = [1:length(FETypes)]
 
     #############################
