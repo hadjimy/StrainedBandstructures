@@ -28,10 +28,10 @@ function exportVTK(filename, Displacement::FEVectorBlock{T,Tv,Ti,FEType,APT}, Po
         FES_strain = FESpace{P0strain ? L2P0{size_ϵu} : H1P1{size_ϵu}}(xgrid_plot)
         if Polarisation !== nothing
             FES_polarisation = FESpace{H1P1{1}}(xgrid_plot)
-            Solution_plot = FEVector{Float64}(["u_h (upscale)", "ϵu", "V_P"],[FES, FES_strain, FES_polarisation])
+            Solution_plot = FEVector([FES, FES_strain, FES_polarisation])
             interpolate!(Solution_plot[3], Polarisation; use_cellparents = true, eps = eps_gfind)
         else
-            Solution_plot = FEVector{Float64}(["u_h (upscale)", "ϵu"],[FES, FES_strain])
+            Solution_plot = FEVector([FES, FES_strain])
         end
         interpolate!(Solution_plot[1], Displacement; use_cellparents = true, eps = eps_gfind)
         interpolate!(Solution_plot[2], Displacement; operator = Gradient, postprocess = interpolate_action, use_cellparents = true, eps = eps_gfind)

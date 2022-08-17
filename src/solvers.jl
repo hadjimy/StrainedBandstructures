@@ -11,6 +11,7 @@ function solve_by_embedding(
             linsolver = "UMFPACK",                          # change solver (e.g. "MKLPARDISO", "UMFPACK", or any ExtendableSparse.LUFactorization)
             nsteps = ones(Int,length(FETypes)),             # number of embedding steps (parameters are scaled by nsteps equidistant steps within 0:1)
             subiterations = [1:length(FETypes)],            # maximal iterations in each embedding step
+            damping = 0,                                    # damping in Newton iteration
             target_residual = 1e-12*ones(Int,length(FETypes)),
             maxiterations = 20*ones(Int,length(FETypes))) where {Tv,Ti}
 
@@ -38,7 +39,7 @@ function solve_by_embedding(
 
             ## solve by GradientRobustMultiPhysics standard fixed-point solver
             println("Solving problem with parameter emb_params = $emb_params (embedding step $j/$(nsteps[s]))...")
-            residual = solve!(Solution, Problem; subiterations = subiterations[s], show_statistics = true, linsolver = linsolver, maxiterations = maxiterations[s], target_residual = target_residual[s])
+            residual = solve!(Solution, Problem; subiterations = subiterations[s], show_statistics = true, damping = damping, linsolver = linsolver, maxiterations = maxiterations[s], target_residual = target_residual[s])
         end
     end
 

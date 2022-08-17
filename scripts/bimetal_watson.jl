@@ -64,7 +64,7 @@ function get_defaults()
         "full_nonlin" => true,                   # use complicated model (ignored if linear strain is used)
         "use_emb" => true,                       # use embedding (true) or damping (false) solver ?
         "nsteps" => 4,                           # number of embedding steps in embedding solver
-        "maxits" => 100,                         # max number of iteration in each embedding step
+        "maxits" => 15,                         # max number of iteration in each embedding step
         "tres" => 1e-12,                         # target residual in each embedding step
         "mb" => 0.5,                             # share of material A vs. material B
         "femorder" => 2,                         # order of the finite element discretisation
@@ -166,8 +166,10 @@ function main(d::Dict; verbosity = 0)
             dirichlet_regions = [1,2,5,6] # core sides and bottoms
         elseif grid_type == "condensator_tensorgrid"
             xgrid = condensator3D_tensorgrid(; scale = scale, d = 10, nrefs = nrefs)
+            dirichlet_regions = [] # free boundary (up to normal direction on bottom + 1 fixed point)
+            #dirichlet_regions = [5,6] # bottom and top
             #dirichlet_regions = [7] # stressor side
-            dirichlet_regions = [1,2,3,4,5,6] # core sides and bottoms
+            #dirichlet_regions = [1,2,3,4,5,6] # core sides and bottoms
         else
             xgrid = bimetal_strip3D_middle_layer(; scale = scale, reflevel = nrefs)
         end
@@ -197,16 +199,26 @@ function main(d::Dict; verbosity = 0)
     add_operator!(Problem, 1, get_displacement_operator(IsotropicElasticityTensor(λ[2], μ[2], dim), strainm, misfit_strain[2], α[2]; dim = dim, emb = emb, regions = [2], bonus_quadorder = 2*(femorder-1)))
     if length(dirichlet_regions) > 0
         add_boundarydata!(Problem, 1, dirichlet_regions, HomogeneousDirichletBoundary)
+        damping = 0
     else
+        if femorder == 1
+            ndofs4dim = num_nodes(xgrid)
+        elseif femorder == 2
+            ndofs4dim = num_nodes(xgrid) + dim == 3 ? size(xgrid[EdgeNodes],2) : size(xgrid[FaceNodes],2)
+        elseif femorder == 3
+            ndofs4dim = num_nodes(xgrid) + dim == 3 ? 2*size(xgrid[EdgeNodes],2) + size(xgrid[FaceNodes],2) : 2*size(xgrid[FaceNodes],1) + num_cells(xgrid)
+        end
         add_constraint!(Problem, FixedDofs(1, [1], [0]))
-        add_operator!(Problem, [1,1], BilinearForm([NormalFlux, NormalFlux]; factor = 1e10, AT = ON_BFACES, regions = [1]))
+        add_constraint!(Problem, FixedDofs(1, [1+ndofs4dim], [0]))
+        add_operator!(Problem, [1,1], BilinearForm([NormalFlux, NormalFlux]; factor = 1e30, AT = ON_BFACES, regions = [5]))
+        damping = 0
     end
     @show Problem
 
     ## solve system with FEM
     if use_emb
         Solution, residual = solve_by_embedding(Problem, xgrid, emb, nsteps = [nsteps], 
-        linsolver = linsolver, FETypes = [FEType], target_residual = [tres], maxiterations = [maxits])
+        linsolver = linsolver, FETypes = [FEType], target_residual = [tres], maxiterations = [maxits], damping = damping)
     else
         energy = get_energy_integrator(stress_tensor, strainm, α; dim = dim)
         Solution, residual = solve_by_damping(Problem, xgrid, energy; FETypes = [FEType], linsolver = linsolver, target_residual = tres, maxiterations = maxits)
