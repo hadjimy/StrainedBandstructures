@@ -251,11 +251,21 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
     cut_npoints = 200, 
     only_localsearch = true,
     eps_gfind = 1e-11,
+    cut_direction = 3, # 1 = y-z-plane, 2 = x-z-plane, 3 = x-y-plane (default)
     Plotter = nothing,
     upscaling = 0,
     do_simplecut_plots = Plotter !== nothing,
     do_uniformcut_plots = Plotter !== nothing)
 
+    if cut_direction == 1
+        direction_string = "x"
+    elseif cut_direction == 2
+        direction_string = "y"
+    elseif cut_direction == 3
+        direction_string = "z"
+    else 
+        @error "cut_direction needs to be 1,2 or 3"
+    end
 
     if upscaling > 0
         xgrid_original = Solution_original[1].FES.xgrid
@@ -289,9 +299,9 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
 
     z::Float64 = 0
     for face = 1 : nfaces
-        z = xCoordinates[3,xFaceNodes[1,face]]
+        z = xCoordinates[cut_direction,xFaceNodes[1,face]]
         for k = 2 : nnodes4face
-            if abs(xCoordinates[3,xFaceNodes[k,face]] - z) > eps_gfind
+            if abs(xCoordinates[cut_direction,xFaceNodes[k,face]] - z) > eps_gfind
                 z = -1
                 break;
             end
@@ -300,7 +310,16 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
     end
 
     ## these are the levels that have faces
-    @info "possible z-levels for cut = $(sort(unique(z4Faces))[2:end])"
+    unique_levels = sort(unique(z4Faces))[2:end]
+    @info "These are the possible $(direction_string) levels for simple cuts:"
+    for l = 1 : length(unique_levels)
+        if unique_levels[l] in cut_levels
+            print(" * ")
+        else
+            print("   ")
+        end
+        println("level = $(unique_levels[l]) | nfaces on level = $(length(findall(abs.(z4Faces .- unique_levels[l]) .< eps_gfind)))")
+    end
 
     ## find three points on the plane z = cut_level and evaluate displacement at points of plane
     xref = [zeros(Float64,3),zeros(Float64,3),zeros(Float64,3)]
@@ -322,6 +341,7 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
             @warn "found no faces in grid that lie in level = $(cut_level), skipping this cut level..."
             continue
         end
+        @show length(faces4level)
         nodes4level = unique(view(xFaceNodes,:,faces4level))
         node_permute = zeros(Int32,size(xCoordinates,2))
         node_permute[nodes4level] = 1 : length(nodes4level)
@@ -333,7 +353,22 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
         # 1:3 = normal vector
         #   4 = - normal vector ⋅ point on plane
         # find normal vector of displaced plane defined by the three points x[1], x[2] and x[3] 
-        x = [[plane_points[1][1],plane_points[1][2],cut_level],[plane_points[2][1],plane_points[2][2],cut_level],[plane_points[3][1],plane_points[3][2],cut_level]]
+        if cut_direction == 1
+            x = [[cut_level, plane_points[1][1],plane_points[1][2]],[cut_level,plane_points[2][1],plane_points[2][2]],[cut_level,plane_points[3][1],plane_points[3][2]]]
+            a = 2
+            b = 3
+            c = 1
+        elseif cut_direction == 2
+            x = [[plane_points[1][1],cut_level,plane_points[1][2]],[plane_points[2][1],cut_level,plane_points[2][2]],[plane_points[3][1],cut_level,plane_points[3][2]]]
+            a = 3
+            b = 1
+            c = 2
+        elseif cut_direction == 3
+            x = [[plane_points[1][1],plane_points[1][2],cut_level],[plane_points[2][1],plane_points[2][2],cut_level],[plane_points[3][1],plane_points[3][2],cut_level]]
+            a = 1
+            b = 2
+            c = 3
+        end
         result = deepcopy(x[1])
         for i = 1 : 3
             # find cell
@@ -349,6 +384,7 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
             x[i] .+= result
         end
 
+        ## normal = (x[1]-x[2]) × (x[1]-x[3])
         plane_equation_coeffs[1]  = (x[1][2] - x[2][2]) * (x[1][3] - x[3][3])
         plane_equation_coeffs[1] -= (x[1][3] - x[2][3]) * (x[1][2] - x[3][2])
         plane_equation_coeffs[2]  = (x[1][3] - x[2][3]) * (x[1][1] - x[3][1])
@@ -358,22 +394,28 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
         plane_equation_coeffs ./= sqrt(sum(plane_equation_coeffs.^2))
         plane_equation_coeffs[4] = -sum(x[1] .* plane_equation_coeffs[1:3])
 
-        ## rotate normal around x axis such that n[2] = 0
-        ## tan(alpha) = n[2]/n[3]
-        alpha = atan(plane_equation_coeffs[2]/plane_equation_coeffs[3])
-        @info "rotating around x-axis with alpha = $alpha"
-        plane_equation_coeffs[3] = sin(alpha)*plane_equation_coeffs[2] + cos(alpha)*plane_equation_coeffs[3]
-        plane_equation_coeffs[2] = 0
+        ## rotate normal around axis a such that n[b] = 0
+        ## tan(alpha) = n[b]/n[c]
+        alpha = atan(plane_equation_coeffs[b]/plane_equation_coeffs[c])
+        @info "rotating around axis $a with alpha = $alpha"
+        plane_equation_coeffs[c] = sin(alpha)*plane_equation_coeffs[b] + cos(alpha)*plane_equation_coeffs[c]
+        plane_equation_coeffs[b] = 0
 
-        ## rotate normal around y axis such that n[1] = 0
-        ## tan(alpha) = n[2]/n[3]
-        beta = -atan(plane_equation_coeffs[1]/plane_equation_coeffs[3])
-        @info "rotating around x-axis with beta = $beta"
-        plane_equation_coeffs[3] = -sin(beta)*plane_equation_coeffs[1] + cos(beta)*plane_equation_coeffs[3]
-        plane_equation_coeffs[1] = 0
+        ## rotate normal around axis b such that n[a] = 0
+        ## tan(alpha) = n[a]/n[c]
+        beta = -atan(plane_equation_coeffs[a]/plane_equation_coeffs[c])
+        @info "rotating around axis $b with beta = $beta"
+        plane_equation_coeffs[c] = -sin(beta)*plane_equation_coeffs[a] + cos(beta)*plane_equation_coeffs[c]
+        plane_equation_coeffs[a] = 0
 
-        R = [cos(beta) 0 sin(beta); 0 1 0; -sin(beta) 0 cos(beta)] * [1 0 0; 0 cos(alpha) -sin(alpha); 0 sin(alpha) cos(alpha)]
-
+        if cut_direction == 1
+            R = [cos(beta) 0 sin(beta); -sin(beta) 0 cos(beta); 0 1 0] * [cos(alpha) -sin(alpha) 0; 0 0 1; sin(alpha) cos(alpha) 0]
+        elseif cut_direction == 2
+            R = [ 0 0 1; cos(beta) sin(beta) 0; -sin(beta) cos(beta) 0] * [0 cos(alpha) -sin(alpha); 0 sin(alpha) cos(alpha); 1 0 0]
+        elseif cut_direction == 3
+            R = [cos(beta) 0 sin(beta); 0 1 0; -sin(beta) 0 cos(beta)] * [1 0 0; 0 cos(alpha) -sin(alpha); 0 sin(alpha) cos(alpha)]
+        end
+        @show R
 
 
         #### SIMPLE CUT GRIDS ###
@@ -420,8 +462,12 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
         xCoordinatesCutPlane = zeros(Float64,2,nnodes_cut)
         for j = 1 : nnodes_cut
             ## displaced nodes moved to plane
-            for n = 1 : 2, k = 1 : 3
-                xCoordinatesCutPlane[n,j] += R[n,k] * (xCoordinatesCut3D[k,j])
+            #for n = 1 : 2, k = 1 : 3
+            #    xCoordinatesCutPlane[n,j] += R[n,k] * (xCoordinatesCut3D[k,j])
+            #end
+            for k = 1 : 3
+                xCoordinatesCutPlane[1,j] += R[a,k] * (xCoordinatesCut3D[k,j])
+                xCoordinatesCutPlane[2,j] += R[b,k] * (xCoordinatesCut3D[k,j])
             end
         end
         cut_grid2D[Coordinates] = xCoordinatesCutPlane
@@ -472,8 +518,8 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
             end
 
             ## restrict coordinates to [x,y] plane
-            max_z = maximum(view(xCoordinatesCutPlane,3,:))
-            min_z = minimum(view(xCoordinatesCutPlane,3,:))
+            max_z = maximum(view(xCoordinatesCutPlane,cut_direction,:))
+            min_z = minimum(view(xCoordinatesCutPlane,cut_direction,:))
 
             ## get z level
             z = (max_z + min_z)/2
@@ -483,10 +529,10 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
 
 
             ## define bounding box and uniform cut grid
-            xmin = minimum(view(xCoordinatesCutPlane,1,:))
-            xmax = maximum(view(xCoordinatesCutPlane,1,:))
-            ymin = minimum(view(xCoordinatesCutPlane,2,:))
-            ymax = maximum(view(xCoordinatesCutPlane,2,:))
+            xmin = minimum(view(xCoordinatesCutPlane,a,:))
+            xmax = maximum(view(xCoordinatesCutPlane,a,:))
+            ymin = minimum(view(xCoordinatesCutPlane,b,:))
+            ymax = maximum(view(xCoordinatesCutPlane,b,:))
             h_uni = [xmax - xmin,ymax - ymin] ./ (cut_npoints-1)
             Xuni = zeros(Float64,0)
             Yuni = zeros(Float64,0)
@@ -505,12 +551,12 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
             FES2D_∇u = FESpace{H1P1{9}}(xgrid_uni)
             FES2D_ϵ = FESpace{H1P1{6}}(xgrid_uni)
             FES2D_P = FESpace{H1P1{1}}(xgrid_uni)
-            CutSolution_u = FEVector{Float64}("u (on 2D cut at z = $(cut_level))", FES2D)
-            CutSolution_∇u = FEVector{Float64}("∇u (on 2D cut at z = $(cut_level))", FES2D_∇u)
-            CutSolution_∇u2 = FEVector{Float64}("∇u (on 2D cut at z = $(cut_level))", FES2D_∇u)
-            CutSolution_∇u3 = FEVector{Float64}("∇u (on 2D cut at z = $(cut_level))", FES2D_∇u)
-            CutSolution_ϵu = FEVector{Float64}("ϵ(u) (on 2D cut at z = $(cut_level))", FES2D_ϵ)
-            CutSolution_P = FEVector{Float64}("P (on 2D cut at z = $(cut_level))", FES2D_P)
+            CutSolution_u = FEVector(FES2D)
+            CutSolution_∇u = FEVector(FES2D_∇u)
+            #CutSolution_∇u2 = FEVector{Float64}("∇u (on 2D cut at z = $(cut_level))", FES2D_∇u)
+            #CutSolution_∇u3 = FEVector{Float64}("∇u (on 2D cut at z = $(cut_level))", FES2D_∇u)
+            CutSolution_ϵu = FEVector(FES2D_ϵ)
+            CutSolution_P = FEVector(FES2D_P)
 
             # mapping from 3D coordinates on cut_grid to 2D coordinates on xgrid_uni
             invR::Matrix{Float64} = inv(R)

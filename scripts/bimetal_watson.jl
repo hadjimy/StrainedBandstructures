@@ -274,6 +274,7 @@ function export_cuts(;
     upscaling = 0,
     eps_gfind = 1e-11,
     mb = 0.5,
+    cut_direction = 1, # 1 = x-direction, 2 = y, 3 = z
     femorder = "max",
     strainm = length(scale) == 3 ? NonlinearStrain3D : NonlinearStrain2D,
     cut_levels = [scale[3] * 0.5],
@@ -328,7 +329,7 @@ function export_cuts(;
         filename_cuts = savename(data, ""; allowedtypes = watson_allowedtypes, accesses = watson_accesses) * "_CUTS/"
         mkpath(datadir(watson_datasubdir, filename_cuts))
         plane_points = [[0.25*scale[1],0.25*scale[2]],[0.75*scale[1],0.25*scale[2]],[0.25*scale[1],0.75*scale[2]]] # = [X,Y] coordinates of the three points that define the cut plane
-        perform_simple_plane_cuts(datadir(watson_datasubdir, filename_cuts), Solution_plot, plane_points, cut_levels; eps_gfind = 1e-10, only_localsearch = true, strain_model = strainm, Plotter = Plotter)
+        perform_simple_plane_cuts(datadir(watson_datasubdir, filename_cuts), Solution_plot, plane_points, cut_levels; cut_direction = cut_direction, eps_gfind = 1e-10, only_localsearch = true, strain_model = strainm, Plotter = Plotter, export_uniform_data = false)
     end
 end
 
