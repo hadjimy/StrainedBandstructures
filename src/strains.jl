@@ -31,7 +31,7 @@ end
     result[offset + 1] = input[1]
     result[offset + 2] = input[5]
     result[offset + 3] = input[9]
-    result[offset + 4] = input[6] + input[8] # = 2 eps_lin(u)[2,3] = grad(u)[2,3] + grad(u)[3,2]
+    result[offset + 4] = input[6] + input[8] # = 2 eps_lin(u)[2,3] = grad(u)[2,3] + grad(u)[3,2] in Voigt notation (2* 1/2 *(grad(u)[2,3] + grad(u)[3,2]))
     result[offset + 5] = input[3] + input[7] # = 2 eps_lin(u)[1,3]
     result[offset + 6] = input[2] + input[4] # = 2 eps_lin(u)[1,2]
     return nothing

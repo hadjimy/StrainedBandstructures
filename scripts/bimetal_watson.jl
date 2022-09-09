@@ -17,7 +17,7 @@ using ExtendableSparse
 # configure Watson
 @quickactivate "NanoWiresJulia" # <- project name
 # set parameters that should be included in filename
-watson_accesses = ["scale", "latfac", "femorder", "full_nonlin", "nrefs", "strainm", "mb", "grid_type"]
+watson_accesses = ["scale", "latmis", "femorder", "full_nonlin", "nrefs", "strainm", "mb", "grid_type"]
 watson_allowedtypes = (Real, String, Symbol, Array, DataType)
 watson_datasubdir = "bimetal_watson"
 
@@ -25,7 +25,7 @@ watson_datasubdir = "bimetal_watson"
 function run_watson(; dim = 2, force::Bool = false, generate_vtk = true)
 
     allparams = Dict(
-        "latfac" => Array{Float64,1}(0:0.02:0.2),  # lattice factor between material A and B (lc = [5,5*(1+latfac)])
+        "latmis" => Array{Float64,1}(0:0.02:0.2),  # lattice mismatch between lattice constants of material A and B (lc = [5,5*(1+latmis)])
         "E" => [[1e-6, 1e-6]],                     # elastic moduli of material A and B
         "ν" => [[0.15, 0.15]],                     # Poisson numbers of material A and B
         "strainm" => [dim == 2 ? NonlinearStrain2D : NonlinearStrain3D],          # strain model
@@ -57,22 +57,22 @@ end
 # defaults for use with run_single
 function get_defaults()
     params = Dict(
-        "latfac" => 0.05,  # lattice factor between material A and B (lc = [5,5*(1+latfac)])
-        "E" => [1e-6, 1e-6],                     # elastic moduli of material A and B
-        "ν" => [0.15, 0.15],                     # Poisson numbers of material A and B
-        "scale" => [50,2000],                    # dimensions of bimetal
-        "full_nonlin" => true,                   # use complicated model (ignored if linear strain is used)
-        "use_emb" => true,                       # use embedding (true) or damping (false) solver ?
-        "nsteps" => 4,                           # number of embedding steps in embedding solver
-        "maxits" => 15,                         # max number of iteration in each embedding step
-        "tres" => 1e-12,                         # target residual in each embedding step
-        "mb" => 0.5,                             # share of material A vs. material B
-        "femorder" => 2,                         # order of the finite element discretisation
-        "upscaling" => 0,                        # upscaling of results (does so many extra nrefs for plots)
-        "nrefs" => 1,                            # number of uniform refinements before solve
-        "avgc" => 2,                             # lattice number calculation method (average case)
-        "linsolver" => ExtendableSparse.MKLPardisoLU, # linear solver (try ExtendableSparse.MKLPardisoLU or ExtendableSparse.LUFactorization)
-        "grid_type" => "default",                # grid options: default, condensator, condensator_tensorgrid
+        "latmis" => 0.05,                               # lattice mismatch between lattice constants of material A and B (lc = [5,5*(1+latmis)])
+        "E" => [1e-6, 1e-6],                            # elastic moduli of material A and B
+        "ν" => [0.15, 0.15],                            # Poisson numbers of material A and B
+        "scale" => [50,2000],                           # dimensions of bimetal
+        "full_nonlin" => true,                          # use complicated model (ignored if linear strain is used)
+        "use_emb" => true,                              # use embedding (true) or damping (false) solver ?
+        "nsteps" => 4,                                  # number of embedding steps in embedding solver
+        "maxits" => 15,                                 # max number of iteration in each embedding step
+        "tres" => 1e-12,                                # target residual in each embedding step
+        "mb" => 0.5,                                    # share of material A vs. material B
+        "femorder" => 2,                                # order of the finite element discretisation
+        "upscaling" => 0,                               # upscaling of results (does so many extra nrefs for plots)
+        "nrefs" => 1,                                   # number of uniform refinements before solve
+        "avgc" => 2,                                    # lattice number calculation method (average case)
+        "linsolver" => ExtendableSparse.MKLPardisoLU,   # linear solver (try ExtendableSparse.MKLPardisoLU or ExtendableSparse.LUFactorization)
+        "grid_type" => "default",                       # grid options: default, condensator, condensator_tensorgrid
     )
     dim = length(params["scale"])
     params["strainm"] = dim == 2 ? NonlinearStrain2D : NonlinearStrain3D
@@ -83,7 +83,7 @@ function set_params!(d; kwargs)
         @info "setting $((k,v))"
         d[String(k)]=v
     end
-    d["strainm"] = length(d["scale"]) == 2 ? NonlinearStrain2D : NonlinearStrain3D
+    #d["strainm"] = length(d["scale"]) == 2 ? NonlinearStrain2D : NonlinearStrain3D
     return nothing
 end
 
@@ -112,11 +112,13 @@ function run_single(d = nothing; force::Bool = false, generate_vtk = true, kwarg
 
     ## compute lattice_mismatch
     fulld = copy(d)
-    latfac = d["latfac"]
+    latmis = d["latmis"]
     mb = d["mb"]
     avgc = d["avgc"]
     scale = d["scale"]
-    lc = [5, 5 * ( 1 + latfac )]
+    #lc = [5, 5 * ( 1 + latmis )]
+    x = 0.5
+    lc = [5.65325, 5.6605*x+6.0553*(1-x)]
     misfit_strain, α = get_lattice_mismatch_bimetal(avgc, [scale[1] * mb, scale[1] * (1 - mb)], lc)
     fulld["misfit_strain"] = misfit_strain
     fulld["α"] = α
@@ -142,25 +144,31 @@ end
 function main(d::Dict; verbosity = 0)
 
     ## unpack paramers
-    @unpack linsolver, latfac, E, ν, misfit_strain, α, full_nonlin, use_emb, nsteps, maxits, tres, scale, mb, femorder, nrefs, strainm, avgc, grid_type = d
+    @unpack linsolver, latmis, E, ν, misfit_strain, α, full_nonlin, use_emb, nsteps, maxits, tres, scale, mb, femorder, nrefs, strainm, avgc, grid_type = d
     
     ## set log level
     set_verbosity(verbosity)
     
     ## compute Lame' coefficients μ and λ from ν and E
-    μ = E ./ (2  .* (1 .+ ν))
-    λ = E .* ν ./ ( (1 .- 2*ν) .* (1 .+ ν))
+    #μ = E ./ (2  .* (1 .+ ν))
+    #λ = E .* ν ./ ( (1 .- 2*ν) .* (1 .+ ν))
+
+    x = 0.5 # composition of Al in Al{x}In{1-x}As
+    C11 = [1200, (x*1250+ (1-x)*832.9)]
+    C44 = [594, (x*542 + (1-x)*395.9)]
+    ## compute Lame' coefficients μ and λ from elasticity matrix C
+    λ = 10^-9 .* (C11 .- 2*C44)
+    μ = 10^-9 .* C44
 
     ## generate bimetal mesh
     dim::Int = length(scale)
     @assert (femorder in 1:3)
     if dim == 3
-        # default dirichlet regions
-        dirichlet_regions = [3,4] ### DOUBLE CHECK!
         if grid_type == "default"
             #xgrid = bimetal_strip3D(; material_border = mb, scale = scale)
             #xgrid = uniform_refine(xgrid,nrefs)
-            xgrid = bimetal_tensorgrid(; scale = scale, nrefs = nrefs)
+            xgrid = bimetal_tensorgrid(; scale = scale, nrefs = nrefs, material_border = mb); dirichlet_regions = [3,4]
+            #xgrid = bimetal_tensorgrid_uniform(; scale = scale, nrefs = nrefs, material_border = mb); dirichlet_regions = [1,2]
         elseif grid_type == "condensator"
             xgrid = condensator3D(; scale = scale, d = 10, nrefs = nrefs)
             dirichlet_regions = [1,2,5,6] # core sides and bottoms
@@ -172,6 +180,7 @@ function main(d::Dict; verbosity = 0)
             #dirichlet_regions = [1,2,3,4,5,6] # core sides and bottoms
         else
             xgrid = bimetal_strip3D_middle_layer(; scale = scale, reflevel = nrefs)
+            #### assign dirichlet_regions ###
         end
 
         if femorder == 1
@@ -182,10 +191,16 @@ function main(d::Dict; verbosity = 0)
             FEType = H1P3{3,3}
         end
     else
-        xgrid = bimetal_strip2D(; material_border = mb, scale = scale)
         FEType = H1Pk{2,2,femorder}
-        xgrid = uniform_refine(xgrid,nrefs)
-        dirichlet_regions = [1]
+        if grid_type == "default"
+            xgrid = bimetal_strip2D(; material_border = mb, scale = scale)
+            FEType = H1Pk{2,2,femorder}
+            xgrid = uniform_refine(xgrid,nrefs)
+            dirichlet_regions = [1]
+        elseif grid_type == "condensator"
+            xgrid = condensator2D_periodic(; A = scale[1], B = scale[2], d = 5, reflevel = nrefs)
+            dirichlet_regions = [1,3]
+        end
     end
 
     ## setup model
@@ -197,7 +212,15 @@ function main(d::Dict; verbosity = 0)
     add_unknown!(Problem; unknown_name = "u", equation_name = "displacement equation")
     add_operator!(Problem, 1, get_displacement_operator(IsotropicElasticityTensor(λ[1], μ[1], dim), strainm, misfit_strain[1], α[1]; dim = dim, emb = emb, regions = [1], bonus_quadorder = 2*(femorder-1)))
     add_operator!(Problem, 1, get_displacement_operator(IsotropicElasticityTensor(λ[2], μ[2], dim), strainm, misfit_strain[2], α[2]; dim = dim, emb = emb, regions = [2], bonus_quadorder = 2*(femorder-1)))
-    if length(dirichlet_regions) > 0
+    if grid_type == "condensator2"
+        # add periodic boundary
+        FES = FESpace{FEType}(xgrid)
+        dofsX, dofsY = get_periodic_coupling_info(FES, xgrid, 2, 4, (f1,f2) -> abs(f1[2] - f2[2]) < 1e-14)
+        add_constraint!(Problem, CombineDofs(1, 1, dofsX, dofsY))
+        dofsX2, dofsY2 = get_periodic_coupling_info(FES, xgrid, 1, 3, (f1,f2) -> abs(f1[1] - f2[1]) < 1e-14)
+        add_constraint!(Problem, CombineDofs(1, 1, dofsX2, dofsY2))
+        damping = 0
+    elseif length(dirichlet_regions) > 0
         add_boundarydata!(Problem, 1, dirichlet_regions, HomogeneousDirichletBoundary)
         damping = 0
     else
@@ -237,7 +260,7 @@ function get_lattice_mismatch_bimetal(avgc, geometry, lc)
 
     for j = 1 : 2
         if avgc == 1
-            a[j] = (lc[j] - lc[1])/lc[1]
+            a[j] = (lc[j] - lc[1])/lc[j]
         elseif avgc == 2
             a[j] = (lc[j] - lc_avg)/lc[j]
         elseif avgc == 3
@@ -245,7 +268,11 @@ function get_lattice_mismatch_bimetal(avgc, geometry, lc)
         end
     end
 
-    return a .* (1 .+ a./2), a
+    if avgc == 1
+        return a, a
+    else
+        return a .* (1 .+ a./2), a
+    end
 end
 
 
@@ -363,13 +390,13 @@ function postprocess(;
         df = filter(:nrefs => ==(nrefs), df)
         df = filter(:mb => ==(mb), df)
         df = filter(:strainm => ==(strainm), df)
-        df = filter(:latfac => <=(maxlc[j]), df)
+        df = filter(:latmis => <=(maxlc[j]), df)
 
         if femorder == "max"
             femorder = maximum(df[!,:femorder])
         end
         df = filter(:femorder => ==(femorder), df)
-        sort!(df, [:latfac])
+        sort!(df, [:latmis])
         @show df
 
         # compute curvature etc
@@ -381,20 +408,26 @@ function postprocess(;
         for data in eachrow(df)
             solution = data[:solution]
             scale = data[:scale]
-        # misfit_strain = data[:misfit_strain]
-                ## compute bending statistics (todo: check curvature formula in 3D)
-            angle, curvature, dist_bend, farthest_point = compute_statistics(solution[1].FES.xgrid, solution[1], scale)
+            # misfit_strain = data[:misfit_strain]
+
+            ## compute bending statistics (todo: check curvature formula in 3D)
+            repair_grid!(solution[1].FES.xgrid)
+            #xgrid_plot = solution[1].FES.xgrid
+            angle, curvature, dist_bend, farthest_point = compute_statistics(solution[1].FES.xgrid, solution[1], scale, eltype(solution[1].FES))
 
             # calculate analytic curvature (is it correct for 3D?)
             E = data[:E]
             α = data[:α]
             mb = data[:mb]
-            factor = 1/2*(α[2] - α[1])*(2 + α[1] + α[2])
+            #factor = 1/2*(α[2] - α[1])*(2 + α[1] + α[2])
+            factor = α[2] - α[1]
             h1 = data[:scale][1] * mb
             h2 = data[:scale][1] * (1-mb)
             m = h1/h2
             n = E[1]/E[2]
             analytic_curvature = abs( 6.0 * factor * (1+m)^2 / ((h1+h2) * ( 3*(1+m)^2 + (1+m*n)*(m^2+1/(m*n)))) )
+            println(h1)
+            println(h2)
             if farthest_point[1] > 0
                 analytic_angle = asin(dist_bend/2*analytic_curvature) * 180/π
             else
@@ -403,30 +436,145 @@ function postprocess(;
             #@info "dist_bend = $(dist_bend)"
             #@info "simulation ===> R = $(1/curvature) | curvature = $curvature | bending angle = $(angle)°"
             #@info "analytic   ===> R = $(1/analytic_curvature) | curvature = $analytic_curvature | bending angle = $(analytic_angle)°"
-            push!(lattice_mismatch, data[:latfac])
+            push!(lattice_mismatch, data[:latmis])
             push!(sim_angle, angle)
             push!(ana_angle, analytic_angle)
             push!(sim_curvature, curvature)
             push!(ana_curvature, analytic_curvature)
         end
+
+        println(10^3*sim_curvature)
+        println(10^3*ana_curvature)
             
         @info "Plotting ..."
         lattice_mismatch *= 100
-        ax1.plot(lattice_mismatch, sim_curvature, color = color[j], marker = marker[j])
-        ax1.plot(lattice_mismatch, ana_curvature, color = color[j], linestyle = "--")
+        ax1.plot(lattice_mismatch, 10^3*sim_curvature, color = color[j], marker = marker[j])
+        ax1.plot(lattice_mismatch, 10^3*ana_curvature, color = color[2], marker = marker[2])
         ax2.plot(lattice_mismatch, sim_angle, color = color[j], marker = marker[j])
         ax2.plot(lattice_mismatch, ana_angle, color = color[j], linestyle = "--")
 
         ax1.set_title("Core: $(Int(mb*100))%, Stressor: $(Int((1-mb)*100))%")
         append!(legend, ["simulation, d = $(scale[1])","analytic, d = $(scale[1])"])
-        ax1.set_ylabel("curvature")
-        ax2.set_ylabel("angle")
+        ax1.set_ylabel("curvature (μm^-1)")
+        ax2.set_ylabel("angle (degrees)")
         ax2.set_xlabel("lattice mismatch (%)")
     end
 
     ax1.legend(legend)
     ax2.legend(legend)
     Plotter.savefig("plots/curvature_angle_material_border=$(mb).png")
+end
+
+function curvature(; scale = [50, 50, 2000], mb = 0.5, nrefs = "max", femorder = "max",
+    strainm = length(scale) == 3 ? NonlinearStrain3D : NonlinearStrain2D)
+
+    # load all data
+    alldata = collect_results(datadir(watson_datasubdir))
+
+    # filter and sort
+    df = filter(:scale => ==(scale), alldata)
+    df = filter(:mb => ==(mb), df)
+    df = filter(:strainm => ==(strainm), df)
+
+    if femorder == "max" || nrefs == "max"
+        femorder = maximum(df[!,:femorder])
+        nrefs = maximum(df[!,:nrefs])
+    end
+    df = filter(:femorder => ==(femorder), df)
+    df = filter(:nrefs => ==(nrefs), df)
+    sort!(df, [:latmis])
+    @show df
+
+    # compute curvature
+    @info "Calculate curvature ..."
+    lattice_mismatch = []
+    sim_angle = []
+    ana_angle = []
+    sim_curvature = []
+    ana_curvature = []
+    for data in eachrow(df)
+        solution = data[:solution]
+        scale = data[:scale]
+        # misfit_strain = data[:misfit_strain]
+
+        ## compute bending statistics
+        repair_grid!(solution[1].FES.xgrid)
+        #xgrid_plot = solution[1].FES.xgrid
+        angle, curvature, dist_bend, farthest_point = compute_statistics(solution[1].FES.xgrid, solution[1], scale, eltype(solution[1].FES))
+
+        # calculate analytic curvature
+        E = data[:E]
+        α = data[:α]
+        mb = data[:mb]
+        #factor = 1/2*(α[2] - α[1])*(2 + α[1] + α[2])
+        factor = α[2] - α[1]
+        h1 = data[:scale][2] * mb
+        h2 = data[:scale][2] * (1-mb)
+        m = h1/h2
+        n = E[1]/E[2]
+        analytic_curvature = abs( 6.0 * factor * (1+m)^2 / ((h1+h2) * ( 3*(1+m)^2 + (1+m*n)*(m^2+1/(m*n)))) )
+        if farthest_point[1] > 0
+            analytic_angle = asin(dist_bend/2*analytic_curvature) * 180/π
+        else
+            analytic_angle = 180 - asin(dist_bend/2*analytic_curvature) * 180/π
+        end
+        #@info "dist_bend = $(dist_bend)"
+        #@info "simulation ===> R = $(1/curvature) | curvature = $curvature | bending angle = $(angle)°"
+        #@info "analytic   ===> R = $(1/analytic_curvature) | curvature = $analytic_curvature | bending angle = $(analytic_angle)°"
+        push!(lattice_mismatch, data[:latmis])
+        push!(sim_angle, angle)
+        push!(ana_angle, analytic_angle)
+        push!(sim_curvature, curvature)
+        push!(ana_curvature, analytic_curvature)
+    end
+
+    return 10^3*sim_curvature, 10^3*ana_curvature, lattice_mismatch
+end
+
+# This function computes the coupling information for boundary regions b1, b2
+# the is_opposite function evaluates if two provided face midpoints
+# are on opposite sides to each other (the mesh xgrid should be appropriate).
+# Then the boundary dofs of the finite element space FES are matched
+function get_periodic_coupling_info(FES, xgrid, b1, b2, is_opposite::Function)
+    xBFaceFaces = xgrid[BFaceFaces]
+    xBFaceRegions = xgrid[BFaceRegions]
+    xBFaceNodes = xgrid[BFaceNodes]
+    xCoordinates = xgrid[Coordinates]
+    nbfaces = size(xBFaceNodes,2)
+    xdim = size(xCoordinates,1)
+    xBFaceMidPoints = zeros(Float64,xdim,nbfaces)
+    for bface = 1 : nbfaces, j = 1 : xdim, bn = 1 : 2
+        xBFaceMidPoints[j,bface] += xCoordinates[j,xBFaceNodes[bn,bface]] / xdim
+    end
+    xBFaceDofs = FES[BFaceDofs]
+    dofsX, dofsY = Int[], Int[]
+    counterface = 0
+    nfb = 0
+    for bface = 1 : nbfaces
+        counterface = 0
+        if xBFaceRegions[bface] == b1
+            for bface2 = 1 : nbfaces
+                if xBFaceRegions[bface2] == b2
+                    if is_opposite(view(xBFaceMidPoints,:,bface), view(xBFaceMidPoints,:,bface2))
+                        counterface = bface2
+                        break
+                    end
+                end
+            end
+        end
+        if counterface > 0
+            nfb = num_targets(xBFaceDofs, bface)
+            push!(dofsX, xBFaceDofs[1,bface])
+            push!(dofsY, xBFaceDofs[2,counterface])
+            push!(dofsX, xBFaceDofs[2,bface])
+            push!(dofsY, xBFaceDofs[1,counterface])
+            for dof = 3 : nfb
+                push!(dofsX, xBFaceDofs[dof,bface])
+                push!(dofsY, xBFaceDofs[nfb+3-dof,counterface]) # couple face dofs in opposite order due to orientation
+            end
+        end
+    end
+    return dofsX, dofsY
 end
 
 end

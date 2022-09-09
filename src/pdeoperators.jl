@@ -95,7 +95,7 @@ function get_displacement_operator(
 
     function nonlinear_operator_kernel!(result, input)
         ## input = [∇u] written as a vector of length dim^2
-        ## result = (1 + ∇u) ℂϵ(u) / (1 + α) written as a vector of length dim^2 (to be multiplied by ∇v)
+        ## result = (1 + ∇u) ℂ ϵ(u) / (1 + α) written as a vector of length dim^2 (to be multiplied by ∇v)
 
         ## evaluate strain into result (Voigt notation)
         eval_strain!(result, input, ST)

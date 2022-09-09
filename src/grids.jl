@@ -306,8 +306,8 @@ function condensator3D_tensorgrid(; scale = [50,50,50], d = 10, nrefs = 2)
     # 6 = tope core
     # 7 = side stressor
 
-    cellmask!(xgrid,[0.0,0.0,scale[3]],[X,Y,scale[3]+d],2)
-    bfacemask!(xgrid,[0.0,0.0,scale[3]],[X,Y,scale[3]+d],7)
+    cellmask!(xgrid,[0.0,0.0,scale[3]],[X,Y,scale[3]+d],2) # assigning region 2 to middle layer
+    bfacemask!(xgrid,[0.0,0.0,scale[3]],[X,Y,scale[3]+d],7) # assigning boundary region 7 to edges of middle layer
 
     return xgrid
 end
@@ -362,6 +362,59 @@ function condensator2D(; A = 50, B = 100, d = 5, reflevel = 1, maxvol1 = B*d/4, 
 
     return xgrid
 end
+
+
+function condensator2D_periodic(; A = 50, B = 100, d = 5, reflevel = 1, maxvol1 = B*d/4, maxvol2 = B*d/4)
+
+    builder=SimplexGridBuilder(Generator=Triangulate)
+
+    @info "Generating 2d condensator grid for A = $A, B = $B, d = $d"
+
+    p1=point!(builder,0,0)
+    p2=point!(builder,B,0)
+    p3=point!(builder,B,A)
+    p4=point!(builder,B,A+d)
+    p5=point!(builder,B,2*A+d)
+    p6=point!(builder,0,2*A+d)
+    p7=point!(builder,0,A+d)
+    p8=point!(builder,0,A)
+
+    facetregion!(builder,1)
+    facet!(builder,p1,p2) # bottom of bottom plate
+
+    facetregion!(builder,2)
+    facet!(builder,p2,p3) # right boundary of bottom plate
+    facet!(builder,p3,p4) # right gap boundary
+    facet!(builder,p4,p5) # right boundary of top plate
+
+    facetregion!(builder,3)
+    facet!(builder,p5,p6) # top boundary of top plate
+
+    facetregion!(builder,4)
+    facet!(builder,p6,p7) # left boundary of top plate
+    facet!(builder,p7,p8) # left gap boundary
+    facet!(builder,p8,p1) # left boundary of bottom plate
+
+    # interior facets to split materials
+	facetregion!(builder,6)
+    facet!(builder,p3,p8)
+    facet!(builder,p4,p7)
+
+    cellregion!(builder,1) # material 1
+    maxvolume!(builder,maxvol1)
+    regionpoint!(builder,(0.5*B,0.5*A))
+    regionpoint!(builder,(0.5*B,1.5*A+d))
+
+    cellregion!(builder,2) # material 2
+    maxvolume!(builder,maxvol2)
+    regionpoint!(builder,(0.5*B,A+0.5*d))
+
+    xgrid = simplexgrid(builder)
+    xgrid = uniform_refine(xgrid,reflevel)
+
+    return xgrid
+end
+
 
 function nonpolarquantumwell3D(; X = 80, Y = 50, Z = 20, V = 8, d = 2, w = 3, reflevel = 1, maxvol1 = 1/4*(Y*Z*(X-V)/2), maxvol2 = 1/4*(Y*Z*V))
 
@@ -917,6 +970,58 @@ function bimetal_tensorgrid(; scale = [1,1,1], nrefs = 1, material_border = 0.5)
 
     hz = 100 * hz_factor
     xgrid = simplexgrid(xgrid,0:hz:scale[3]; bot_offset = 2, top_offset = 4)
+
+    return xgrid
+
+end
+
+
+function bimetal_tensorgrid_uniform(; scale = [1,1,1], nrefs = 1, material_border = 0.5)
+
+    @info "Generating bimetal 3D grid for scale = $scale and middle interface at $material_border of height $(scale[2])"
+
+    W = scale[1]
+    H = scale[2]
+    Z = scale[3]
+    h1 = scale[2]*material_border
+    h2 = scale[2]*(1-material_border)
+    hz_factor = 2.0^-nrefs
+
+	hx = h1/2*2.0^-nrefs
+    hy = min(h1,h2)/2*2.0^-nrefs
+	d = hy/2
+	XX = 0:hx:W
+	YY = Array{Float64,1}(0:(h1-d)/2:h1-d)
+	append!(YY, Array{Float64,1}(LinRange(h1-d,h1+d,3)[2:end-1]))
+	append!(YY, Array{Float64,1}(h1+d:(h2-d)/2:H))
+    xgrid = simplexgrid(XX,YY)
+
+    hz = 100 * hz_factor
+    z_levels = Array{Float64,1}(0:hz:Z)
+
+    xgrid = simplexgrid(xgrid, z_levels; bot_offset=4, top_offset=5)
+    xgrid = uniform_refine(xgrid,nrefs)
+    # the offsets lead to the following boundary regions:
+    # 1 - 4 = side core
+    # 5 = bottom core
+    # 6 = tope core
+    # 7 = side stressor
+
+	# assigning region numbers: core region = 1, stressor region = 2
+	cellmask!(xgrid,[0,0,0],[W,h1,Z],1)
+	cellmask!(xgrid,[0,h1,0],[W,H,Z],2)
+
+	# boundary faces
+    bfacemask!(xgrid,[0,0,0],[W,h1,0],1) # bottom core
+	bfacemask!(xgrid,[0,h1,0],[W,H,0],2) # botom stressor
+	bfacemask!(xgrid,[0,0,0],[0,h1,Z],3) # side core
+	bfacemask!(xgrid,[0,0,0],[W,0,Z],3)  # side core
+	bfacemask!(xgrid,[W,0,0],[W,h1,Z],3) # side core
+	bfacemask!(xgrid,[0,h1,0],[0,H,Z],4) # side stressor
+	bfacemask!(xgrid,[0,H,0],[W,H,Z],4)  # side stressor
+	bfacemask!(xgrid,[W,h1,0],[W,H,Z],4) # side stressor
+	bfacemask!(xgrid,[0,0,Z],[W,h1,Z],5) # top core
+	bfacemask!(xgrid,[0,h1,Z],[W,H,Z],6) # top stressor
 
     return xgrid
 

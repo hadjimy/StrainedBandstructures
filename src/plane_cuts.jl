@@ -697,10 +697,8 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
             replace!(CutSolution_P.entries, NaN=>1e30)
 
             ## write material map into txt files
-            component_names = ["XX","YY","ZZ","YZ","XZ","XY"]
-            component_names = ["eXX","eYY","eZZ","eYZ","eXZ","eXY"]
             for c = 1 : 6
-                @info "Writing strain distribution file for $(component_names[c])..."
+                @info "Writing strain distribution file for e$(component_names[c])..."
                 filename_eAB = target_folder_cut * 'e' * component_names[c] * ".dat"
                 io = open(filename_eAB, "w")
                 #@printf(io, "%s\n", component_names[c])
