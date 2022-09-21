@@ -271,100 +271,45 @@ function condensator3D(; scale=[50,50,50], d = 5, nrefs = 1, maxvol1 = prod(scal
     return xgrid
 end
 
-
 function condensator3D_tensorgrid(; scale = [50,50,50], d = 10, nrefs = 2)
 
-    @info "Generating 3D condensator tensor grid for scale = $scale and middle layer width = $d."
+    @info "Generating 3D condensator grid for a cuboid with dimensions ($(scale[1]),$(scale[2]),$(2*scale[1]+d)) and middle layer of width $d."
 
     X = scale[1]
     Y = scale[2]
     Z = 2*scale[3] + d
-    hz_factor = 2.0^-nrefs
+    npts = 2*(nrefs+1)
 
-    hx = 100*2.0^-nrefs
-    hy = hx
-    XX = 0:hx:X
-    YY = 0:hy:Y
+    XX = LinRange(0,scale[1],npts)
+    YY = LinRange(0,scale[2],npts)
 
     xgrid = simplexgrid(XX,YY)
 
-    hz = 50 * hz_factor
-    z_levels_nonuniform = Array{Float64,1}(0:hz:scale[3])
-    if nrefs == 1
-        npts = 2*nrefs
-    else
-        npts = nrefs
-    end
-    append!(z_levels_nonuniform, Array{Float64,1}(LinRange(scale[3],scale[3]+d,npts)[2:end-1]))
-    append!(z_levels_nonuniform, Array{Float64,1}(scale[3]+d:hz:Z))
+    z_levels_nonuniform = Array{Float64,1}(LinRange(0,scale[3]-d,npts))
+    append!(z_levels_nonuniform, Array{Float64,1}(LinRange(scale[3]-d,scale[3],1+Int(npts/2))[3:end]))
+    append!(z_levels_nonuniform, Array{Float64,1}(LinRange(scale[3],scale[3]+d,1+Int(npts/2))[2:end-1]))
+    append!(z_levels_nonuniform, Array{Float64,1}(LinRange(scale[3]+d,scale[3]+2*d,1+Int(npts/2))[1:end-2]))
+    append!(z_levels_nonuniform, Array{Float64,1}(LinRange(scale[3]+2*d,Z,npts)))
 
     xgrid = simplexgrid(xgrid, z_levels_nonuniform; bot_offset=4, top_offset=5)
     xgrid = uniform_refine(xgrid,nrefs-1)
     # the offsets lead to the following boundary regions:
-    # 1 - 4 = side core
-    # 5 = bottom core
-    # 6 = tope core
-    # 7 = side stressor
+    # 1 - 4  = side core
+    # 5      = bottom core
+    # 6      = tope core
+    # 7 - 10 = side stressor
 
-    cellmask!(xgrid,[0.0,0.0,scale[3]],[X,Y,scale[3]+d],2) # assigning region 2 to middle layer
-    bfacemask!(xgrid,[0.0,0.0,scale[3]],[X,Y,scale[3]+d],7) # assigning boundary region 7 to edges of middle layer
+    cellmask!(xgrid,[0,0,scale[3]],[X,Y,scale[3]+d],2)
+	bfacemask!(xgrid,[0,0,scale[3]],[X,0,scale[3]+d],7)
+	bfacemask!(xgrid,[0,Y,scale[3]],[X,Y,scale[3]+d],8)
+    bfacemask!(xgrid,[0,0,scale[3]],[0,Y,scale[3]+d],9)
+	bfacemask!(xgrid,[X,0,scale[3]],[X,Y,scale[3]+d],10)
 
     return xgrid
 end
-
 
 
 function condensator2D(; A = 50, B = 100, d = 5, reflevel = 1, maxvol1 = B*d/4, maxvol2 = B*d/4)
-
-    builder=SimplexGridBuilder(Generator=Triangulate)
-
-    @info "Generating 2d condensator grid for A = $A, B = $B, d = $d"
-
-    p1=point!(builder,0,0)                                                
-    p2=point!(builder,B,0)                                         
-    p3=point!(builder,B,A)                                 
-    p4=point!(builder,B,A+d)    
-    p5=point!(builder,B,2*A+d)                                                
-    p6=point!(builder,0,2*A+d)                                         
-    p7=point!(builder,0,A+d)                                 
-    p8=point!(builder,0,A)     
-
-    facetregion!(builder,1) # bottom of bottom plate
-    facet!(builder,p1 ,p2)
-    facetregion!(builder,11) # left and right boundary of bottom plate
-    facet!(builder,p2,p3)
-    facet!(builder,p8,p1)
-
-    facetregion!(builder,2) # gap boundary left and right
-    facet!(builder,p3 ,p4)
-    facet!(builder,p7 ,p8)
-
-    facetregion!(builder,3) # boundary of top plate (left, top, right)
-    facet!(builder,p4, p5)
-    facet!(builder,p5, p6)
-    facet!(builder,p6, p7)
-
-    facetregion!(builder,4) # interior facets to split materials
-    facet!(builder,p3, p8)
-    facet!(builder,p4, p7)
-
-    cellregion!(builder,1) # material 1
-    maxvolume!(builder,maxvol1)
-    regionpoint!(builder,(0.5*B,0.5*A))
-    regionpoint!(builder,(0.5*B,1.5*A+d))
-
-    cellregion!(builder,2) # material 2
-    maxvolume!(builder,maxvol2)
-    regionpoint!(builder,(0.5*B,A+0.5*d))
-
-    xgrid = simplexgrid(builder)
-    xgrid = uniform_refine(xgrid,reflevel)
-
-    return xgrid
-end
-
-
-function condensator2D_periodic(; A = 50, B = 100, d = 5, reflevel = 1, maxvol1 = B*d/4, maxvol2 = B*d/4)
 
     builder=SimplexGridBuilder(Generator=Triangulate)
 
@@ -411,6 +356,39 @@ function condensator2D_periodic(; A = 50, B = 100, d = 5, reflevel = 1, maxvol1 
 
     xgrid = simplexgrid(builder)
     xgrid = uniform_refine(xgrid,reflevel)
+
+    return xgrid
+end
+
+
+function condensator2D_tensorgrid(; scale = [50,50], d = 10, nrefs = 2)
+
+    @info "Generating 2D condensator grid for a rectangle with dimensions ($(scale[1]),$(2*scale[2]+d)) and middle layer of width $d."
+
+    X = scale[1]
+    Y = 2*scale[2] + d
+    npts = 2*(nrefs+1)
+
+    XX = LinRange(0,scale[1],npts)
+    YY = Array{Float64,1}(LinRange(0,scale[2]-d,npts))
+    append!(YY, Array{Float64,1}(LinRange(scale[2]-d,scale[2],1+Int(npts/2))[3:end]))
+    append!(YY, Array{Float64,1}(LinRange(scale[2],scale[2]+d,1+Int(npts/2))[2:end-1]))
+    append!(YY, Array{Float64,1}(LinRange(scale[2]+d,scale[2]+2*d,1+Int(npts/2))[1:end-2]))
+    append!(YY, Array{Float64,1}(LinRange(scale[2]+2*d,Y,npts)))
+
+	xgrid = simplexgrid(XX,YY)
+    xgrid = uniform_refine(xgrid,nrefs-1)
+    # the offsets lead to the following boundary regions:
+    # 1 = bottom bulk
+    # 2 = right bulk
+    # 3 = top bulk
+    # 4 = left bulk
+	# 5 = right side stressor
+	# 6 = left side stressor
+
+    cellmask!(xgrid,[0,scale[2]],[X,scale[2]+d],2)
+    bfacemask!(xgrid,[X,scale[2]],[X,scale[2]+d],5)
+    bfacemask!(xgrid,[0,scale[2]],[0,scale[2]+d],6)
 
     return xgrid
 end

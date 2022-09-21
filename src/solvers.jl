@@ -46,6 +46,42 @@ function solve_by_embedding(
     return Solution, residual
 end
 
+function solve_by_embedding!(
+    Solution,
+    Problem,                                        # problem description
+    xgrid::ExtendableGrid{Tv,Ti},                   # grid
+    emb_params;                                     # embedding parameters (operators must depend on them!)
+    FETypes = [H1P1{size(xgrid[Coordinates],1)}],   # FETypes (default: P1)
+    linsolver = "UMFPACK",                          # change solver (e.g. "MKLPARDISO", "UMFPACK", or any ExtendableSparse.LUFactorization)
+    nsteps = ones(Int,length(FETypes)),             # number of embedding steps (parameters are scaled by nsteps equidistant steps within 0:1)
+    subiterations = [1:length(FETypes)],            # maximal iterations in each embedding step
+    damping = 0,                                    # damping in Newton iteration
+    target_residual = 1e-12*ones(Int,length(FETypes)),
+    maxiterations = 20*ones(Int,length(FETypes))) where {Tv,Ti}
+
+@info "solver = $linsolver"
+
+## prepare parameter embedding
+emb_params_target = deepcopy(emb_params)
+if sum(emb_params_target) == 0.
+nsteps .= 1
+@warn "all emb_params_target == 0, reducing nsteps to 1"
+end
+
+residual::Float64 = 0
+for s = 1 : length(subiterations)
+for j = 1 : nsteps[s]
+    emb_params .= nsteps[s] == 1 ? emb_params_target : (j-1)/(nsteps[s]-1) .* emb_params_target
+
+    ## solve by GradientRobustMultiPhysics standard fixed-point solver
+    println("Solving problem with parameter emb_params = $emb_params (embedding step $j/$(nsteps[s]))...")
+    residual = solve!(Solution, Problem; subiterations = subiterations[s], show_statistics = true, damping = damping, linsolver = linsolver, maxiterations = maxiterations[s], target_residual = target_residual[s])
+end
+end
+
+return Solution, residual
+end
+
 
 
 ## solves the problem by criterion-dependent damping

@@ -25,8 +25,8 @@ end
 export repair_grid!
 
 include("grids.jl")
-export bimetal_strip3D, bimetal_strip2D, bimetal_strip3D_middle_layer, bimetal_tensorgrid, bimetal_tensorgrid_uniform
-export condensator3D, condensator3D_tensorgrid, condensator2D, condensator2D_periodic
+export bimetal_strip3D, bimetal_strip2D, bimetal_strip3D_middle_layer, bimetal_tensorgrid
+export condensator3D, condensator3D_tensorgrid, condensator2D
 export nonpolarquantumwell3D, nonpolarquantumwell2D
 export nanowire_grid, nanowire_tensorgrid
 
@@ -73,6 +73,7 @@ export compute_statistics
 
 include("solvers.jl")
 export solve_by_embedding
+export solve_by_embedding!
 export solve_by_damping
 
 greet() = print("Hello World!")

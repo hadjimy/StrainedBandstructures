@@ -20,7 +20,7 @@ using Pardiso
 @quickactivate "NanoWiresJulia" # <- project name
 # set parameters that should be included in filename
 #watson_accesses = ["mstruct", "geometry", "scenario", "shell_x", "stressor_x", "full_nonlin", "nrefs", "femorder", "femorder_P"]
-watson_accesses = ["geometry", "nrefs", "femorder", "uniform_grid", "interface_refinement", "z_levels_dist"]
+watson_accesses = ["geometry", "nrefs", "femorder", "stressor_x", "uniform_grid", "interface_refinement", "z_levels_dist"]
 watson_allowedtypes = (Real, String, Symbol, Array, DataType)
 watson_datasubdir = "nanowire"
 
@@ -90,7 +90,7 @@ function main(d = nothing; verbosity = 0, Plotter = nothing, force::Bool = false
     println("***Solving nanowire problem***")
 
     ## set log level
-    set_verbosity(verbosity)
+    #set_verbosity(verbosity)
 
     ################
     ### SCENARIO ###
@@ -256,7 +256,7 @@ function main(d = nothing; verbosity = 0, Plotter = nothing, force::Bool = false
     ### POSTPROCESS ###
     ###################
     if d["postprocess"]
-        postprocess(filename; Plotter = nothing, cut_levels = geometry[4]/2)
+        postprocess(filename; Plotter = Plotter, cut_levels = geometry[4]/2)
     else
         @info "skipping postprocessing... start it manually with: nanowire.postprocess(\"$filename\"; Plotter = PyPlot)"
     end
@@ -350,7 +350,7 @@ function postprocess(filename = nothing; Plotter = nothing, cut_levels = "auto",
     ## compute statistics
     @unpack solution, geometry = d
     repair_grid!(solution[1].FES.xgrid)
-    angle, curvature, dist_bend, farthest_point = compute_statistics(solution[1].FES.xgrid, solution[1], [0,0,geometry[4]])
+    angle, curvature, dist_bend, farthest_point = compute_statistics(solution[1].FES.xgrid, solution[1], [0,0,geometry[4]], eltype(solution[1].FES))
     d["angle"] = angle
     d["curvature"] = curvature
 

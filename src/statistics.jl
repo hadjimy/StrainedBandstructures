@@ -1,7 +1,8 @@
 
 ## computes the curvature (of the circle connecting points at front and back)
 ## and bending angle and (if given) compares the curvature to the analytical value
-function compute_statistics(xgrid, Displacement::FEVectorBlock{T,Tv,Ti,FEType,APT}, scaling) where {T,Tv,Ti,FEType,APT}
+#function compute_statistics(xgrid, Displacement::FEVectorBlock{T,Tv,Ti,FEType,APT}, scaling) where {T,Tv,Ti,FEType,APT}
+function compute_statistics(xgrid, Displacement, scaling, FEType)
     xCoordinates = xgrid[Coordinates]
     nnodes = size(xCoordinates,2)
     ncomponents = get_ncomponents(FEType)
@@ -35,7 +36,7 @@ function compute_statistics(xgrid, Displacement::FEVectorBlock{T,Tv,Ti,FEType,AP
     end
 
     ## compute bending arc at midoint
-    nodevals = nodevalues(Displacement; continuous = true)
+    nodevals = nodevalues(Displacement, Identity; continuous = true)
     dist_unbend = sqrt(sum((xCoordinates[:,origin_point] - xCoordinates[:,farthest_point]).^2))
     dist_bend = sqrt(sum((xCoordinates[:,origin_point] - xCoordinates[:,farthest_point] - nodevals[:,farthest_point]).^2))
     dist_farthest = sqrt(sum((nodevals[:,farthest_point]).^2))
