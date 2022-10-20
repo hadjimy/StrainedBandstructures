@@ -684,7 +684,7 @@ function nanowire_grid(; scale = [1,1,1,1], anisotropy = [1,1,1,1], reflevel = 1
     return xgrid
 end
 
-function nanowire_tensorgrid(; scale = [1,1,1,1], nrefs = 1, cut_levels = scale[4]/2, α = nothing, Plotter = nothing, z_levels_dist = 10)
+function nanowire_tensorgrid(; scale = [1,1,1,1], nrefs = 1, cut_levels = scale[4]/2, α = nothing, Plotter = nothing, z_levels_dist = 100, version = 1)
 
     @info "Generating nanowire grid for scale = $scale"
 
@@ -709,7 +709,7 @@ function nanowire_tensorgrid(; scale = [1,1,1,1], nrefs = 1, cut_levels = scale[
     end
 
     # bottom side at Z = 0
-    p0=point!(builder,0,0)
+    p0 = point!(builder,0,0)
     p1 = point!(builder,d1,0)
     p2 = point!(builder,d1/2,sqrt(3)/2*d1)
     p3 = point!(builder,-d1/2,sqrt(3)/2*d1)
@@ -722,8 +722,15 @@ function nanowire_tensorgrid(; scale = [1,1,1,1], nrefs = 1, cut_levels = scale[
     p10 = point!(builder,-d2,0)
     p11 = point!(builder,-d2/2,-sqrt(3)/2*d2)
     p12 = point!(builder,d2/2,-sqrt(3)/2*d2)
-    p13 = point!(builder,d2/2+δ/sqrt(3),-sqrt(3)/2*d2-δ)
-    p14 = point!(builder,-d2/2-δ/sqrt(3),-sqrt(3)/2*d2-δ)
+    if version == 1
+        p13 = point!(builder,d2/2+δ/sqrt(3),-sqrt(3)/2*d2-δ)
+        p14 = point!(builder,-d2/2-δ/sqrt(3),-sqrt(3)/2*d2-δ)
+    elseif version == 2
+        p13 = point!(builder,d2,-δ)
+        p14 = point!(builder,d2/2,-sqrt(3)/2*d2-δ)
+        p15 = point!(builder,-d2/2,-sqrt(3)/2*d2-δ)
+        p16 = point!(builder,-d2,-δ)
+    end
 
     if α !== nothing
         xstar = α/2 + d2*(1 - sqrt(3)*α/(4*δ))
@@ -827,9 +834,17 @@ function nanowire_tensorgrid(; scale = [1,1,1,1], nrefs = 1, cut_levels = scale[
         facet!(builder,p12,p7)
 
         facetregion!(builder,3) # stressor region
-        facet!(builder,p7,p13)
-        facet!(builder,p13,p14)
-        facet!(builder,p14,p10)
+        if version == 1
+            facet!(builder,p7,p13)
+            facet!(builder,p13,p14)
+            facet!(builder,p14,p10)
+        elseif version == 2
+            facet!(builder,p7,p13)
+            facet!(builder,p13,p14)
+            facet!(builder,p14,p15)
+            facet!(builder,p15,p16)
+            facet!(builder,p16,p10)
+        end
 
         cellregion!(builder,1) # material 1
         maxvolume!(builder,A_core/6*vol_factor_core)
@@ -845,8 +860,9 @@ function nanowire_tensorgrid(; scale = [1,1,1,1], nrefs = 1, cut_levels = scale[
     end
     xgrid = simplexgrid(builder)
 
+    hz = z_levels_dist * hz_factor
     if cut_levels !== nothing
-        hz = 10 * z_levels_dist * hz_factor
+
         z_levels = 0:hz:scale[4]
         z_levels_nonuniform = Vector{Any}(z_levels)
         for i = 1 : length(cut_levels)
@@ -861,7 +877,6 @@ function nanowire_tensorgrid(; scale = [1,1,1,1], nrefs = 1, cut_levels = scale[
             end
         end
     else
-        hz = z_levels_dist * hz_factor
         z_levels = 0:hz:scale[4]
         z_levels_nonuniform = Vector{Any}(z_levels)
     end
@@ -956,50 +971,50 @@ end
 
 function bimetal_tensorgrid_uniform(; scale = [1,1,1], nrefs = 1, material_border = 0.5)
 
-    @info "Generating bimetal 3D grid for scale = $scale and middle interface at $material_border of height $(scale[2])"
+    @info "Generating bimetal 3D grid for scale = $scale and middle interface at $material_border of height $scale[2]"
 
     W = scale[1]
     H = scale[2]
     Z = scale[3]
-    h1 = scale[2]*material_border
-    h2 = scale[2]*(1-material_border)
+    h1 = round(scale[2]*material_border)
+    h2 = round(scale[2]*(1 - material_border))
     hz_factor = 2.0^-nrefs
 
-	hx = h1/2*2.0^-nrefs
+    hx = W/4*2.0^-nrefs
     hy = min(h1,h2)/2*2.0^-nrefs
-	d = hy/2
-	XX = 0:hx:W
-	YY = Array{Float64,1}(0:(h1-d)/2:h1-d)
-	append!(YY, Array{Float64,1}(LinRange(h1-d,h1+d,3)[2:end-1]))
-	append!(YY, Array{Float64,1}(h1+d:(h2-d)/2:H))
-    xgrid = simplexgrid(XX,YY)
-
     hz = 100 * hz_factor
-    z_levels = Array{Float64,1}(0:hz:Z)
 
-    xgrid = simplexgrid(xgrid, z_levels; bot_offset=4, top_offset=5)
+    XX = 0:hx:W
+    YY = Array{Float64,1}(0:(h1-hy)/2:h1-hy)
+    append!(YY, Array{Float64,1}(LinRange(h1-hy,h1+hy,3)[2:end-1]))
+    append!(YY, Array{Float64,1}(h1+hy:(h2-hy)/2:H))
+    ZZ = Array{Float64,1}(0:hz:Z)
+
+    xgrid = simplexgrid(XX,YY)
+    xgrid = simplexgrid(xgrid, ZZ)
     xgrid = uniform_refine(xgrid,nrefs)
     # the offsets lead to the following boundary regions:
-    # 1 - 4 = side core
-    # 5 = bottom core
-    # 6 = tope core
-    # 7 = side stressor
+    # 1 - 6 = sides core & bottom
+    # 7 = bottom core
+    # 8 = bottom stressor
+    # 9 = top core
+    # 10 = top stressor
 
-	# assigning region numbers: core region = 1, stressor region = 2
-	cellmask!(xgrid,[0,0,0],[W,h1,Z],1)
-	cellmask!(xgrid,[0,h1,0],[W,H,Z],2)
+    # assigning region numbers: core region = 1, stressor region = 2
+    cellmask!(xgrid,[0,0,0],[W,h1,Z],1)
+    cellmask!(xgrid,[0,h1,0],[W,H,Z],2)
 
-	# boundary faces
-    bfacemask!(xgrid,[0,0,0],[W,h1,0],1) # bottom core
-	bfacemask!(xgrid,[0,h1,0],[W,H,0],2) # botom stressor
-	bfacemask!(xgrid,[0,0,0],[0,h1,Z],3) # side core
-	bfacemask!(xgrid,[0,0,0],[W,0,Z],3)  # side core
-	bfacemask!(xgrid,[W,0,0],[W,h1,Z],3) # side core
-	bfacemask!(xgrid,[0,h1,0],[0,H,Z],4) # side stressor
-	bfacemask!(xgrid,[0,H,0],[W,H,Z],4)  # side stressor
-	bfacemask!(xgrid,[W,h1,0],[W,H,Z],4) # side stressor
-	bfacemask!(xgrid,[0,0,Z],[W,h1,Z],5) # top core
-	bfacemask!(xgrid,[0,h1,Z],[W,H,Z],6) # top stressor
+    # boundary faces
+    bfacemask!(xgrid,[0,0,0],[W,h1,Z],1)  # side core left
+    bfacemask!(xgrid,[0,h1,0],[0,H,Z],2)  # side stressor left
+    bfacemask!(xgrid,[0,H,0],[W,H,Z],3)   # side stressor
+    bfacemask!(xgrid,[W,0,0],[W,h1,Z],4)  # side core right
+    bfacemask!(xgrid,[W,h1,0],[W,H,Z],5)  # side stressor right
+    bfacemask!(xgrid,[0,0,0],[W,0,Z],6)   # side core
+    bfacemask!(xgrid,[0,0,0],[W,h1,0],7)  # bottom core
+    bfacemask!(xgrid,[0,h1,0],[W,H,0],8)  # bottom stressor
+    bfacemask!(xgrid,[0,0,Z],[W,h1,Z],9)  # top core
+    bfacemask!(xgrid,[0,h1,Z],[W,H,Z],10) # top stressor
 
     return xgrid
 

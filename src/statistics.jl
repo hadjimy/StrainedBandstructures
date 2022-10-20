@@ -9,8 +9,10 @@ function compute_statistics(xgrid, Displacement, scaling, FEType)
 
     # find vertex number closest to (0,d/2)
     # find vertex number farthest away from (L,d/2)
-    front_level = ncomponents == 2 ? [0, scaling[1]/2] : [scaling[1]/2, scaling[2]/2, 0]
-    back_level = ncomponents == 2 ? [scaling[2], scaling[1]/2] : [scaling[1]/2, scaling[2]/2, scaling[3]]
+    #front_level = ncomponents == 2 ? [0, scaling[1]/2] : [0, -scaling[3]/2, 0]
+    #back_level = ncomponents == 2 ? [scaling[2], scaling[1]/2] : [0, -scaling[3]/2, scaling[4]]
+    front_level = ncomponents == 2 ? [0, scaling[1]/2] : [0, -scaling[1], 0]
+    back_level = ncomponents == 2 ? [scaling[2], scaling[1]/2] : [0, -scaling[1], scaling[4]]
     origin_point::Int = 0
     farthest_point::Int = 0
     closest_distance::Float64 = 1e30

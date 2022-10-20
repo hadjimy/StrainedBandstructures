@@ -85,7 +85,7 @@ function set_params!(d; kwargs)
         @info "setting $((k,v))"
         d[String(k)]=v
     end
-    #d["strainm"] = length(d["scale"]) == 2 ? NonlinearStrain2D : NonlinearStrain3D
+    d["strainm"] = length(d["scale"]) == 2 ? NonlinearStrain2D : NonlinearStrain3D
     return nothing
 end
 
@@ -118,9 +118,10 @@ function run_single(d = nothing; force::Bool = false, generate_vtk = true, kwarg
     mb = d["mb"]
     avgc = d["avgc"]
     scale = d["scale"]
-    #lc = [5, 5 * ( 1 + latmis )]
+    lc = [5, 5 * ( 1 + latmis )]
     x = 0.5
     lc = [5.65325, 5.6605*x+6.0553*(1-x)]
+    @info "lattice mismatch: $(round(100*(lc[2]/lc[1]-1),digits=3)) %"
     misfit_strain, α = get_lattice_mismatch_bimetal(avgc, [scale[1] * mb, scale[1] * (1 - mb)], lc)
     fulld["misfit_strain"] = misfit_strain
     fulld["α"] = α
@@ -194,13 +195,13 @@ function main(d::Dict; verbosity = 0)
                         0   0   0 C44   0   0
                         0   0   0   0 C44   0
                         0   0   0   0   0 C44 ])
-    C1 = CustomMatrixElasticityTensor( # ZincBlende111
-            1e-9*[  C11p  C12p C13p     0  C15p     0
-                    C12p  C11p C13p     0 -C15p     0
-                    C13p  C13p C33p     0     0     0
-                        0     0    0  C44p     0 -C15p
-                    C15p -C15p    0     0  C44p     0
-                        0     0    0 -C15p     0  C66p])
+    # C1 = CustomMatrixElasticityTensor( # ZincBlende111
+    #         1e-9*[  C11p  C12p C13p     0  C15p     0
+    #                 C12p  C11p C13p     0 -C15p     0
+    #                 C13p  C13p C33p     0     0     0
+    #                     0     0    0  C44p     0 -C15p
+    #                 C15p -C15p    0     0  C44p     0
+    #                     0     0    0 -C15p     0  C66p])
 
     C11 = C11_data[2]
     C12 = C12_data[2]
@@ -233,13 +234,13 @@ function main(d::Dict; verbosity = 0)
                         0   0   0 C44   0   0
                         0   0   0   0 C44   0
                         0   0   0   0   0 C44 ])
-    C2 = CustomMatrixElasticityTensor( # ZincBlende111
-            1e-9*[  C11p  C12p C13p     0  C15p     0
-                    C12p  C11p C13p     0 -C15p     0
-                    C13p  C13p C33p     0     0     0
-                        0     0    0  C44p     0 -C15p
-                    C15p -C15p    0     0  C44p     0
-                        0     0    0 -C15p     0  C66p])
+    # C2 = CustomMatrixElasticityTensor( # ZincBlende111
+    #         1e-9*[  C11p  C12p C13p     0  C15p     0
+    #                 C12p  C11p C13p     0 -C15p     0
+    #                 C13p  C13p C33p     0     0     0
+    #                     0     0    0  C44p     0 -C15p
+    #                 C15p -C15p    0     0  C44p     0
+    #                     0     0    0 -C15p     0  C66p])
 
     ## generate bimetal mesh
     dim::Int = length(scale)
@@ -250,8 +251,8 @@ function main(d::Dict; verbosity = 0)
         if grid_type == "default"
             #xgrid = bimetal_strip3D(; material_border = mb, scale = scale)
             #xgrid = uniform_refine(xgrid,nrefs)
-            xgrid = bimetal_tensorgrid(; scale = scale, nrefs = nrefs, material_border = mb); dirichlet_regions = [3,4]
-            #xgrid = bimetal_tensorgrid_uniform(; scale = scale, nrefs = nrefs, material_border = mb); dirichlet_regions = [1,2]
+            #xgrid = bimetal_tensorgrid(; scale = scale, nrefs = nrefs, material_border = mb); dirichlet_regions = [3,4]
+            xgrid = bimetal_tensorgrid_uniform(; scale = scale, nrefs = nrefs, material_border = mb); dirichlet_regions = [7,8]
         elseif grid_type == "condensator"
             xgrid = condensator3D(; scale = scale, d = 10, nrefs = nrefs); dirichlet_regions = [1,2,5,6] # core sides and bottoms
         elseif grid_type == "condensator_tensorgrid"
@@ -462,7 +463,7 @@ function export_cuts(;
         filename_cuts = savename(data, ""; allowedtypes = watson_allowedtypes, accesses = watson_accesses) * "_CUTS/"
         mkpath(datadir(watson_datasubdir, filename_cuts))
         plane_points = [[0.25*scale[1],0.25*scale[2]],[0.75*scale[1],0.25*scale[2]],[0.25*scale[1],0.75*scale[2]]] # = [X,Y] coordinates of the three points that define the cut plane
-        perform_simple_plane_cuts(datadir(watson_datasubdir, filename_cuts), Solution_plot, plane_points, cut_levels; cut_direction = cut_direction, eps_gfind = 1e-10, only_localsearch = true, strain_model = strainm, Plotter = Plotter, export_uniform_data = false)
+        perform_simple_plane_cuts(datadir(watson_datasubdir, filename_cuts), Solution_plot, plane_points, cut_levels; cut_direction = cut_direction, eps_gfind = 1e-10, only_localsearch = true, strain_model = strainm, Plotter = Plotter, export_uniform_data = true)
     end
 end
 

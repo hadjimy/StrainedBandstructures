@@ -482,6 +482,7 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
         kwargs[:strain] = nodevals_ϵu
         ExtendableGrids.writeVTK(target_folder_cut * "simple_cut_$(cut_level)_data.vtu", cut_grid; kwargs...)
         
+        component_names = ["XX","YY","ZZ","YZ","XZ","XY"]
         if do_simplecut_plots
             @info "Plotting data on simple cut grid..."
             labels = ["ux","uy","uz"]
@@ -491,7 +492,6 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
                     Plotter.savefig(target_folder_cut * "simple_cut_$(cut_level)_$(labels[j]).png")
                 end
             end
-            component_names = ["XX","YY","ZZ","YZ","XZ","XY"]
             for k = 1 : 6
                 scalarplot(cut_grid2D, view(nodevals_ϵu,k,:), Plotter = Plotter; title = "ϵ_$(component_names[k]) on cut", fignumber = 1)
                 if isdefined(Plotter,:savefig)

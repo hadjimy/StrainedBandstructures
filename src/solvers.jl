@@ -101,7 +101,7 @@ function solve_by_damping(
             use_energy_decrease_criterion = true,               # damping step is accepted if energy decreases
             use_residual_decrease_criterion = false,            # damping step is accepted if nonlinear residual decreases
             use_or = true,                                      # it is enough when one of the criterions above is satisfied
-            damping_step = 0.05,                                 # checks damping values within the range 0:damping_step:1
+            damping_step = 0.05,                                # checks damping values within the range 0:damping_step:1
             maxiterations = 100) where {Tv,Ti}                  # maximal iterations
 
     ## generate solution vector

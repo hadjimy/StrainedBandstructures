@@ -50,7 +50,9 @@ function get_defaults()
         "linsolver" => ExtendableSparse.MKLPardisoLU, # linear solver (try ExtendableSparse.MKLPardisoLU or ExtendableSparse.LUFactorization)
         "uniform_grid" => true,                 # uniform grid in z direction or nonuniform grid with local refinement at cut levels
         "interface_refinement" => false,        # enables a finer grid at material interface for each cross-section
-        "z_levels_dist" => 10,
+        "z_levels_dist" => 100,                 # distance between z-levels is z_levels_dist * 2^(-nrefs)
+        "cut_levels_pos" => [0.5],              # position of cut-levels w.r.t. nanowire length. i.e., cut_levels = cut_levels_pos * geometry[4]
+        "grid_version" => 1                     # geometry of stressor; either version 1 or 2
     )
     return params
 end
@@ -58,7 +60,6 @@ end
 function set_params!(d; kwargs...)
     for (k,v) in kwargs
         d[String(k)]=v
-        d["cut_levels"] = [0.3,0.4,0.5,0.6,0.7]*d["geometry"][4]   # z-level locations of cuts
     end
     return nothing
 end
@@ -142,20 +143,21 @@ function main(d = nothing; verbosity = 0, Plotter = nothing, force::Bool = false
         xgrid = uniform_refine(xgrid,nrefs)
     else
         geometry = Array{Float64,1}(geometry)
-        geometry[1] /= 2
-        geometry[2] /= 2
-        geometry[3] = 6.5
+        geometry[1] /= sqrt(3)
+        geometry[2] /= sqrt(3)
+        #geometry[3] = 6.5
         if d["uniform_grid"] == true
-            cut_levels = nothing
+            d["cut_levels"] = nothing
         else
-            cut_levels = d["cut_levels"]
+            d["cut_levels"] = d["cut_levels_pos"]*d["geometry"][4]   # z-level locations of cuts
+
         end
         if d["interface_refinement"] == true
             α = geometry[2]/6
         else
             α = nothing
         end
-        xgrid = nanowire_tensorgrid(; scale = geometry, nrefs = nrefs, cut_levels = cut_levels, α = α, z_levels_dist = d["z_levels_dist"])
+        xgrid = nanowire_tensorgrid(; scale = geometry, nrefs = nrefs, cut_levels = d["cut_levels"], α = α, z_levels_dist = d["z_levels_dist"], version = d["grid_version"])
     end
     #xgrid = nanowire_grid(; scale = geometry)
     #gridplot(xgrid; Plotter=Plotter)
@@ -173,9 +175,9 @@ function main(d = nothing; verbosity = 0, Plotter = nothing, force::Bool = false
 
     ## add Dirichlet boundary data on front
     if d["interface_refinement"] == true
-        regions_bc = [6,7] # 6 = core bottom, 7 = shell bottom
+        regions_bc = [6,7,8] # 6 = core bottom, 7 = shell bottom, 8 = stressor bottom
     else
-        regions_bc = [4,5]  # 4 = core bottom, 5 = shell bottom
+        regions_bc = [4,5,6]  # 4 = core bottom, 5 = shell bottom, 6 = stressor bottom
     end
     add_boundarydata!(Problem, 1, regions_bc, HomogeneousDirichletBoundary)
 
@@ -256,7 +258,10 @@ function main(d = nothing; verbosity = 0, Plotter = nothing, force::Bool = false
     ### POSTPROCESS ###
     ###################
     if d["postprocess"]
-        postprocess(filename; Plotter = Plotter, cut_levels = geometry[4]/2)
+        d = postprocess(filename; Plotter = Plotter, cut_levels = geometry[4]/2, simple_cuts=true)
+        resultd["angle"] = d["angle"]
+        resultd["curvature"] = d["curvature"]
+        wsave(datadir(watson_datasubdir, filename), resultd)
     else
         @info "skipping postprocessing... start it manually with: nanowire.postprocess(\"$filename\"; Plotter = PyPlot)"
     end
@@ -270,7 +275,7 @@ function get_lattice_misfit_nanowire(lcavg_case, MD::MaterialData, geometry)
     nregions = length(MD.data)
     lc_avg::Array{Float64,1} = zeros(Float64,3)
     eps0::Array{Array{Float64,1},1} = Array{Array{Float64,1},1}(undef, nregions)
-    r::Array{Int64,1} = geometry[1:3]
+    r::Array{Float64,1} = geometry[1:3]
     a::Array{Float64,1} = zeros(Float64,3)
 
     lc = Array{Array{Float64,1}}(undef, nregions)
@@ -332,10 +337,10 @@ function export_vtk(d = nothing; upscaling = 0, kwargs...)
     filename_vtk = savename(d, ""; allowedtypes = watson_allowedtypes, accesses = watson_accesses)
     solution = d["solution"]
     repair_grid!(solution[1].FES.xgrid)
-    exportVTK(datadir(watson_datasubdir, filename_vtk), solution[1]; P0strain = true, upscaling = upscaling, strain_model = d["strainm"])
+    exportVTK(datadir(watson_datasubdir, filename_vtk), solution[1]; P0strain = true, upscaling = upscaling, strain_model = d["strainm"], eps0 = d["eps0"])
 end
 
-function postprocess(filename = nothing; Plotter = nothing, cut_levels = "auto", simple_cuts = true, cut_npoints = 100, vol_cut = "auto", upscaling = 0, kwargs...)
+function postprocess(filename = nothing; Plotter = nothing, export_vtk = true, cut_levels = "auto", simple_cuts = true, cut_npoints = 100, vol_cut = "auto", upscaling = 0, kwargs...)
 
     if typeof(filename) <: Dict
         d = filename
@@ -350,17 +355,19 @@ function postprocess(filename = nothing; Plotter = nothing, cut_levels = "auto",
     ## compute statistics
     @unpack solution, geometry = d
     repair_grid!(solution[1].FES.xgrid)
-    angle, curvature, dist_bend, farthest_point = compute_statistics(solution[1].FES.xgrid, solution[1], [0,0,geometry[4]], eltype(solution[1].FES))
+    angle, curvature, dist_bend, farthest_point = compute_statistics(solution[1].FES.xgrid, solution[1], geometry, eltype(solution[1].FES))
     d["angle"] = angle
     d["curvature"] = curvature
 
     # export vtk files
-    @unpack polarisation, strainm = d
-    filename_vtk = savename(d, ""; allowedtypes = watson_allowedtypes, accesses = watson_accesses)
-    if polarisation
-        NanoWiresJulia.exportVTK(datadir(watson_datasubdir, filename_vtk), solution[1], solution[2]; upscaling = upscaling, strain_model = strainm, eps_gfind = 1e-10)
-    else
-        NanoWiresJulia.exportVTK(datadir(watson_datasubdir, filename_vtk), solution[1]; upscaling = upscaling, strain_model = strainm, eps_gfind = 1e-10)
+    if export_vtk == true
+        @unpack polarisation, strainm, eps0 = d
+        filename_vtk = savename(d, ""; allowedtypes = watson_allowedtypes, accesses = watson_accesses)
+        if polarisation
+            exportVTK(datadir(watson_datasubdir, filename_vtk), solution[1], solution[2]; P0strain = true, upscaling = upscaling, strain_model = strainm, eps0 = eps0)
+        else
+            exportVTK(datadir(watson_datasubdir, filename_vtk), solution[1]; P0strain = true, upscaling = upscaling, strain_model = strainm, eps0 = eps0)
+        end
     end
 
     ## save again
@@ -382,8 +389,10 @@ function postprocess(filename = nothing; Plotter = nothing, cut_levels = "auto",
     if simple_cuts # needs grid that triangulates cut_levels
         perform_simple_plane_cuts(datadir(watson_datasubdir, filename_cuts), solution, plane_points, cut_levels; eps_gfind = 1e-10, only_localsearch = true, strain_model = strainm, Plotter = Plotter, upscaling = upscaling)
     else
-        perform_plane_cuts(datadir(watson_datasubdir, filename_cuts), solution, plane_points, cut_levels; strain_model = strainm, cut_npoints = cut_npoints, vol_cut = vol_cut, Plotter = Plotter)
+        #perform_plane_cuts(datadir(watson_datasubdir, filename_cuts), solution, plane_points, cut_levels; strain_model = strainm, cut_npoints = cut_npoints, vol_cut = vol_cut, Plotter = Plotter)
     end
+
+    return d
     
 end
 
