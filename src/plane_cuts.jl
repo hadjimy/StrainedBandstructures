@@ -333,6 +333,22 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
     strain = zeros(Float64,6)
     gradient = zeros(Float64,9)
 
+
+    ## interpolate eps0 on original grid
+    eps0_fefunc_orig = FEVector(FESpace{L2P0{3}}(xgrid))
+    ncells_orig = num_cells(xgrid)
+    for cell = 1 : ncells_orig
+        if typeof(eps0[xCellRegions[cell]]) <: Real
+            for k = 1 : 3
+                eps0_fefunc_orig.entries[(cell-1)*3 + k] = eps0[xCellRegions[cell]]
+            end
+        else
+            eps0_fefunc_orig.entries[(cell-1)*3 + 1] = eps0[xCellRegions[cell]][1]
+            eps0_fefunc_orig.entries[(cell-1)*3 + 2] = eps0[xCellRegions[cell]][2]
+            eps0_fefunc_orig.entries[(cell-1)*3 + 3] = eps0[xCellRegions[cell]][3]
+        end
+    end
+
     for l = 1 : length(cut_levels)
 
         cut_level = cut_levels[l]
@@ -450,12 +466,37 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
         @info "Interpolating data on cut mesh..."
         nodevals_gradient = nodevalues(DisplacementGradient[1], Identity; nodes = nodes4level)
         nodevals_ϵu = zeros(Float64,6,nnodes_cut)
+        nodevals_ϵu_elastic = zeros(Float64,6,nnodes_cut)
+
+        ## interpolate eps0 on cut_grid
+        eps0_fefunc = FEVector(FESpace{L2P0{3}}(cut_grid))
+        ncells_cut = num_cells(cut_grid)
+        xCellRegions_cut = cut_grid[CellRegions]
+        for cell = 1 : ncells_cut
+            if typeof(eps0[xCellRegions_cut[cell]]) <: Real
+                for k = 1 : 3
+                    eps0_fefunc.entries[(cell-1)*3 + k] = eps0[xCellRegions_cut[cell]]
+                end
+            else
+                eps0_fefunc.entries[(cell-1)*3 + 1] = eps0[xCellRegions_cut[cell]][1]
+                eps0_fefunc.entries[(cell-1)*3 + 2] = eps0[xCellRegions_cut[cell]][2]
+                eps0_fefunc.entries[(cell-1)*3 + 3] = eps0[xCellRegions_cut[cell]][3]
+            end
+        end
+        #interpolate!(eps0_fefunc[1], eps0_datafunc)
+
+        nodevals_ϵ0 = nodevalues(eps0_fefunc[1])
+
         
         ## calculate strain from gradient interpolation on cut
         for j = 1 : nnodes_cut
             eval_strain!(strain, view(nodevals_gradient,:,j), strain_model)
             for k = 1 : 6
                 nodevals_ϵu[k,j] = strain[k]
+                nodevals_ϵu_elastic[k,j] = strain[k]
+            end
+            for k = 1 : 3
+                nodevals_ϵu_elastic[k,j] -= nodevals_ϵ0[k,j]
             end
         end
 
@@ -482,6 +523,7 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
         kwargs[:displacement] = nodevals
         kwargs[:grad_displacement] = nodevals_gradient
         kwargs[:strain] = nodevals_ϵu
+        kwargs[:elastic_strain] = nodevals_ϵu_elastic
         ExtendableGrids.writeVTK(target_folder_cut * "simple_cut_$(cut_level)_data.vtu", cut_grid; kwargs...)
         
         component_names = ["XX","YY","ZZ","YZ","XZ","XY"]
@@ -498,6 +540,10 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
                 scalarplot(cut_grid2D, view(nodevals_ϵu,k,:), Plotter = Plotter; title = "ϵ_$(component_names[k]) on cut", fignumber = 1)
                 if isdefined(Plotter,:savefig)
                     Plotter.savefig(target_folder_cut * "simple_cut_$(cut_level)_ϵ$(component_names[k]).png")
+                end
+                scalarplot(cut_grid2D, view(nodevals_ϵu_elastic,k,:), Plotter = Plotter; title = "ϵ_elastic_$(component_names[k]) on cut", fignumber = 1)
+                if isdefined(Plotter,:savefig)
+                    Plotter.savefig(target_folder_cut * "simple_cut_$(cut_level)_ϵ_elastic_$(component_names[k]).png")
                 end
             end
         end
@@ -526,7 +572,7 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
             ## get z level
             z = (max_z + min_z)/2
             z_error = max_z - min_z
-            @info "maximal difference between z coordinates = $(z_error)"
+            @info "maximal difference between cut direction coordinates = $(z_error)"
             #invR = inv(R)
 
 
@@ -560,24 +606,8 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
             CutSolution_ϵu = FEVector(FES2D_ϵ)
             CutSolution_ϵu_elastic = FEVector(FES2D_ϵ)
             CutSolution_P = FEVector(FES2D_P)
+            eps0_fefunc_uni = FEVector(FESpace{H1P1{3}}(xgrid_uni))
 
-
-            # interpolate eps0 to uniform grid
-            function eps0_eval(result,x,item)
-                @show item[3]
-                if typeof(eps0[item[3]]) <: Real
-                    result[1] = eps0[item[3]]
-                    result[2] = eps0[item[3]]
-                    result[3] = eps0[item[3]]
-                else
-                    result[1] = eps0[item[3]][1]
-                    result[2] = eps0[item[3]][2]
-                    result[3] = eps0[item[3]][3]
-                end
-            end
-            eps0_datafunc = DataFunction(eps0_eval, [3, 3]; dependencies = "XI")
-            eps0_fefunc = FEVector(FESpace{H1P1{3}}(xgrid_uni))
-            interpolate!(eps0_fefunc[1], eps0_datafunc)
 
             # mapping from 3D coordinates on cut_grid to 2D coordinates on xgrid_uni
             invR::Matrix{Float64} = inv(R)
@@ -591,12 +621,15 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
                 return nothing
             end
 
-            # mapping from 2D coordinates on simple cut_grid to 2D coordinates on xgrid_uni
+            # mapping from 3D coordinates on simple cut_grid to 2D coordinates on xgrid_uni
             function xtrafo2!(x2D_out,x2D_in)
                 x2D_out[1] = x2D_in[1] + xmin
                 x2D_out[2] = x2D_in[2] + ymin
                 return nothing
             end
+
+            #interpolate ϵ0 onto uniform grid
+            interpolate!(eps0_fefunc_uni[1], eps0_fefunc_orig[1]; xtrafo = xtrafo!, start_cell = start_cell, not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
 
             # evaluate u on deformed mesh
             # 2D coordinates on uniform cut mesh need to be transformed to 3D coordinates in displaced 3D grid by xtrafo
@@ -645,7 +678,7 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
                     CutSolution_ϵu_elastic.entries[(k-1)*nnodes_uni + j] = strain[k]
                 end
                 for k = 1 : 3
-                    CutSolution_ϵu_elastic.entries[(k-1)*nnodes_uni + j] -= eps0_fefunc.entries[(k-1)*nnodes_uni + j]
+                    CutSolution_ϵu_elastic.entries[(k-1)*nnodes_uni + j] -= eps0_fefunc_uni.entries[(k-1)*nnodes_uni + j]
                 end
             end
 
@@ -657,7 +690,7 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
             nnodes_uni = size(xCoordinatesUni,2)
             xdim = size(xCoordinatesUni,1)
             #@printf(io, "CORE STRESSOR OUTSIDE X Y\n")
-            cell::Int = 0
+            cell::Int = 1
             region::Int = 0
             x3D = zeros(Float64,3)
             xCellRegionsUniform = zeros(Int32,num_cells(xgrid_uni))
@@ -673,7 +706,7 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
                 xtest ./= 3.0
                 xtest[1] += xmin
                 xtest[2] += ymin
-                cell = gFindLocal!(xref[1], CF2D, xtest; eps = eps_gfind)
+                cell = gFindLocal!(xref[1], CF2D, xtest; trybrute = false, eps = eps_gfind)
                 xCellRegionsUniform[cu] = cell == 0 ? 0 : xCellRegionsSimpleCut[cell]
             end
             xgrid_uni[CellRegions] = xCellRegionsUniform
@@ -684,7 +717,7 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
                 end
                 xtest[1] += xmin
                 xtest[2] += ymin
-                cell = gFindLocal!(xref[1], CF2D, xtest; eps = eps_gfind)
+                cell = gFindLocal!(xref[1], CF2D, xtest; trybrute = false, eps = eps_gfind)
                 region = cell == 0 ? 0 : xCellRegionsSimpleCut[cell]
                 if region == 1
                     @printf(io, "1 0 0 ")
