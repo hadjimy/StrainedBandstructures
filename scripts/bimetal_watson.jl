@@ -439,6 +439,7 @@ function export_cuts(;
     for data in eachrow(df)
         solution = data[:solution]
         strainm = data[:strainm]
+        eps0 = data[:misfit_strain]
 
         repair_grid!(solution[1].FES.xgrid)
         xgrid_plot = solution[1].FES.xgrid
@@ -463,7 +464,7 @@ function export_cuts(;
         filename_cuts = savename(data, ""; allowedtypes = watson_allowedtypes, accesses = watson_accesses) * "_CUTS/"
         mkpath(datadir(watson_datasubdir, filename_cuts))
         plane_points = [[0.25*scale[1],0.25*scale[2]],[0.75*scale[1],0.25*scale[2]],[0.25*scale[1],0.75*scale[2]]] # = [X,Y] coordinates of the three points that define the cut plane
-        perform_simple_plane_cuts(datadir(watson_datasubdir, filename_cuts), Solution_plot, plane_points, cut_levels; cut_direction = cut_direction, eps_gfind = 1e-10, only_localsearch = true, strain_model = strainm, Plotter = Plotter, export_uniform_data = true)
+        perform_simple_plane_cuts(datadir(watson_datasubdir, filename_cuts), Solution_plot, plane_points, cut_levels; eps0 = eps0, cut_direction = cut_direction, eps_gfind = 1e-10, only_localsearch = true, strain_model = strainm, Plotter = Plotter, export_uniform_data = true)
     end
 end
 

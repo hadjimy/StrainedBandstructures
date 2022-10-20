@@ -387,7 +387,7 @@ function postprocess(filename = nothing; Plotter = nothing, export_vtk = true, c
     diam = geometry[1] + geometry[2]
     plane_points = [[-0.25*diam,-0.25*diam],[0.25*diam,-0.25*diam],[-0.25*diam,0.25*diam]] # = [X,Y] coordinates of the three points that define the cut plane
     if simple_cuts # needs grid that triangulates cut_levels
-        perform_simple_plane_cuts(datadir(watson_datasubdir, filename_cuts), solution, plane_points, cut_levels; eps_gfind = 1e-10, only_localsearch = true, strain_model = strainm, Plotter = Plotter, upscaling = upscaling)
+        perform_simple_plane_cuts(datadir(watson_datasubdir, filename_cuts), solution, plane_points, cut_levels; eps0 = eps0, eps_gfind = 1e-10, only_localsearch = true, strain_model = strainm, Plotter = Plotter, upscaling = upscaling)
     else
         #perform_plane_cuts(datadir(watson_datasubdir, filename_cuts), solution, plane_points, cut_levels; strain_model = strainm, cut_npoints = cut_npoints, vol_cut = vol_cut, Plotter = Plotter)
     end

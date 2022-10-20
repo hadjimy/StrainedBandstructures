@@ -17,6 +17,7 @@ function exportVTK(filename, Displacement::FEVectorBlock{T,Tv,Ti,FEType,APT}, Po
     misfit = [[0,0,0],[0,0,0],[0,0,0]]
     function interpolate_postprocess(result, input, item)
         # input = [∇u]
+        # item contains item information and item[3] is the region number
         eval_strain!(result, input, strain_model)
         if typeof(misfit[item[3]]) <: Real
             result[1] -= misfit[item[3]]
