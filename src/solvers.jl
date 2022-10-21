@@ -189,3 +189,240 @@ function solve_by_damping(
 
     return Solution, residual
 end
+
+
+
+function solve_lowlevel(
+    xgrid::ExtendableGrid,                          # grid
+    boundary_conditions,                            # Array of BoundaryData for each unknown
+    global_constraints,                             # Array of lgobal constraints (like periodic dofs, fixed integral means)
+    displacement_operator,                          # Operator for displacement
+    emb_params;                                     # embedding parameters (operators must depend on them!)
+    FETypes = [H1P1{size(xgrid[Coordinates],1)}],   # FETypes (default: P1)
+    linsolver = ExtendableSparse.MKLPardiso,
+    nsteps = ones(Int,length(FETypes)),             # number of embedding steps (parameters are scaled by nsteps equidistant steps within 0:1)
+    subiterations = [1:length(FETypes)],            # maximal iterations in each embedding step
+    damping = 0,                                    # damping in Newton iteration
+    target_residual = 1e-12*ones(Int,length(FETypes)),
+    solve_polarisation = false,                # also solve for polarisation ?
+    maxiterations = 20*ones(Int,length(FETypes)),
+    fixed_penalty = 1e60
+    )
+
+    ## generate FES spaces
+    Tv = Float64
+    Ti = Int32
+    FES = Array{FESpace{Tv,Ti},1}(undef, 0)
+    push!(FES, FESpace{FETypes[1]}(xgrid))
+
+    solve_polarisation = (length(FETypes) == 2) * solve_polarisation
+
+    if solve_polarisation
+        push!(FES, FESpace{FETypes[2]}(xgrid))
+    end
+
+    @show solve_polarisation, typeof(displacement_operator)
+
+    ## generate FEVectors and FEMatrix
+    SolutionOld = FEVector(FES)     # storage for previous solution
+    Solution::FEVector{Float64} = FEVector(FES)        # storage for current and final solution
+    S = FEMatrix(FES)       # system matrix
+    rhs = FEVector(FES)     # system rhs
+
+    @info "ndofs = $(length(Solution.entries))"
+
+    ## generate quadrature rule
+    EG = xgrid[UniqueCellGeometries][1]
+    order = get_polynomialorder(FETypes[1], EG)
+    qf = QuadratureRule{Float64, EG}(2*(order-1) + displacement_operator.action.bonus_quadorder)
+    weights::Vector{Float64} = qf.w
+    nweights::Int = length(weights)
+    cellvolumes::Array{Float64,1} = xgrid[CellVolumes]
+    cellregions::Array{Int,1} = xgrid[CellRegions]
+
+    ## prepare dofmaps and FE evaluators
+    ndofs_u::Int = get_ndofs(ON_CELLS, FETypes[1], EG)      # displacement
+    ∇u::FEEvaluator{Float64} = FEEvaluator(FES[1], Gradient, qf)
+    vals_∇u::Array{Float64,3} = ∇u.cvals
+    celldofs_u::Matrix{Int32} = Matrix(FES[1][GradientRobustMultiPhysics.CellDofs])
+    indices_∇u = 1:size(vals_∇u, 1)
+    eval_∇u::Array{Float64,1} = zeros(Float64, displacement_operator.action.argsizes[3])
+
+    if solve_polarisation # polarisation
+        ndofs_P::Int = get_ndofs(ON_CELLS, FETypes[2], EG)  
+        ∇_P::FEEvaluator{Float64} = FEEvaluator(FES[2], Gradient, qf)
+        vals_∇_P::Array{Float64,3} = ∇_P.cvals
+        celldofs_P::Matrix{Int32} = Matrix(FES[2][GradientRobustMultiPhysics.CellDofs])
+        eval_∇_P::Array{Float64,1} = zeros(Float64, size(vals_∇_P, 1))
+    end
+
+    ## local matrix and vector structures
+    AUU::Array{Float64,2} = zeros(Float64, ndofs_u, ndofs_u)
+    bU::Array{Float64,1} = zeros(Float64, ndofs_u)
+    SE::ExtendableSparseMatrix{Float64,Int64} = S.entries
+    SolutionE::Array{Float64,1} = Solution.entries
+
+    offsets::Array{Int,1} = [0, FES[1].ndofs]
+    if solve_polarisation
+        push!(offsets, FES[1].ndofs + FES[2].ndofs)
+    end
+
+    ## ASSEMBLY LOOP
+    fixed_dofs = nothing
+    ncells::Int = num_cells(xgrid)
+    temp::Float64 = 0
+    tempV::Array{Float64,1} = zeros(Float64, displacement_operator.action.argsizes[1])
+    jac_handler = displacement_operator.action
+    jac = jac_handler.jac
+    jac_view = view(jac,indices_∇u,indices_∇u)
+
+    function update_system(update_elasticity = false, update_polarisation = false)
+
+        if update_elasticity
+            fill!(S[1,1],0)
+            fill!(rhs[1],0)
+        end
+        if update_polarisation
+            # todo
+        end
+
+        for cell = 1 : ncells
+
+            ## update FE basis evaluators
+            jac_handler.item[1] = cell
+            jac_handler.item[2] = cell
+            jac_handler.item[3] = cellregions[cell]
+            ∇u.citem[] = cell
+            update_basis!(∇u) 
+            dofs_u = view(celldofs_u, : , cell)
+
+            for qp = 1 : nweights
+                if update_elasticity
+                    ## evaluate ∇u in current solution at current quadrature point
+                    fill!(eval_∇u, 0)
+                    for j = 1 : ndofs_u, k in indices_∇u
+                        eval_∇u[k] += SolutionE[dofs_u[j]] * vals_∇u[k,j,qp] 
+                    end
+
+                    ## evaluate jacobian of displacement tensor
+                    eval_jacobian!(jac_handler, eval_∇u)
+                    jac = jac_handler.jac
+
+                    # update matrix
+                    for j = 1 : ndofs_u
+                        # multiply with jacobian
+                        mul!(tempV, jac_view, view(vals_∇u,:,j,qp))
+
+                        # multiply test function operator evaluation
+                        for k = 1 : ndofs_u
+                            AUU[j,k] += dot(tempV, view(vals_∇u,:,k,qp)) * weights[qp]
+                        end
+                    end 
+
+                    # update rhs
+                    mul!(tempV, jac_view, view(eval_∇u, indices_∇u))
+                    tempV .-= jac_handler.val
+                    for j = 1 : ndofs_u
+                        bU[j] += dot(tempV, view(vals_∇u,:,j,qp)) * weights[qp]
+                    end
+                end
+            end
+
+            if update_elasticity
+                # write into full matrix
+                for j = 1 : ndofs_u
+                    for k = 1 : ndofs_u
+                        if abs(AUU[j,k]) > 0
+                            rawupdateindex!(SE, +, AUU[j,k] * cellvolumes[cell] , dofs_u[k], dofs_u[j])
+                        end
+                    end
+                    rhs.entries[dofs_u[j]] += bU[j] * cellvolumes[cell]
+                end
+
+                fill!(AUU, 0)
+                fill!(bU, 0)
+            end
+        end
+
+        ## apply penalties for boundary condition
+        fixed_dofs = boundarydata!(Solution[1], boundary_conditions[1])
+        for dof in fixed_dofs
+            SE[dof,dof] = fixed_penalty
+            rhs.entries[dof] = 0 # fixed_penalty * Solution.entries[dof]
+            Solution.entries[dof] = 0
+        end
+
+        ## apply global constraints
+        for constraint in global_constraints
+            apply_constraint!(S, rhs, constraint, Solution)
+        end
+
+        flush!(SE)
+    end
+
+    ## prepare other stuff for loop
+    emb_params_target = deepcopy(emb_params)
+    factorization = nothing
+    residual = zeros(Float64, size(SE,1))
+    nlres::Float64 = 0
+    linres::Float64 = 0
+    change::Float64 = 0
+    time_assembly::Float64 = 0
+    time_solver::Float64 = 0
+    iteration::Int = 0
+
+    for step = 1 : nsteps[1]
+        emb_params .= nsteps[1] == 1 ? emb_params_target : (step-1)/(nsteps[1]-1) .* emb_params_target
+
+        @info "Entering embedding step = $step/$(nsteps[1]), emb_params = $emb_params"
+            
+        iteration = 0
+        while iteration <= maxiterations[1]
+            # update system
+            time_assembly = @elapsed update_system(true, solve_polarisation)
+            if iteration == 0 && step == 1
+                factorization=linsolver(SE)
+                factorize!(factorization, SE)
+            end
+        
+            # compute nonlinear residual
+            fill!(residual, 0)
+            mul!(residual, SE, Solution.entries)
+            residual .-= rhs.entries
+            view(residual, fixed_dofs) .= 0
+
+            nlres = norm(residual)
+            @info "         ---> nonlinear iteration $iteration, linres = $linres, nlres = $nlres, timeASSEMBLY + timeSOLVE = $time_assembly + $time_solver"
+            if nlres < target_residual[1]
+                @info "target reached, stopping..."
+                break
+            end
+
+            # update factorization and solve
+            if damping > 0
+                SolutionOld.entries .= Solution.entries
+            end
+
+            time_solver = @elapsed begin
+                update!(factorization)
+                ldiv!(Solution.entries, factorization, rhs.entries)
+            end
+            iteration += 1
+
+            fill!(residual, 0)
+            mul!(residual, SE, Solution.entries)
+            residual .-= rhs.entries
+            view(residual, fixed_dofs) .= 0
+            linres = norm(residual)
+
+            if damping > 0
+                Solution.entries .= (1 - damping) * Solution.entries + damping * SolutionOld.entries
+                change = norm(SolutionOld.entries - Solution.entries)
+            end
+
+        end
+    end
+
+    return Solution, nlres
+
+end

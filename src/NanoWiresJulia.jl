@@ -2,6 +2,7 @@ module NanoWiresJulia
 
 using GradientRobustMultiPhysics
 using ExtendableGrids
+using ExtendableSparse
 using GridVisualize
 using SimplexGridFactory
 using Triangulate
@@ -75,6 +76,7 @@ include("solvers.jl")
 export solve_by_embedding
 export solve_by_embedding!
 export solve_by_damping
+export solve_lowlevel
 
 greet() = print("Hello World!")
 

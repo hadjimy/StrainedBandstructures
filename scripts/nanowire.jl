@@ -41,10 +41,11 @@ function get_defaults()
         "mb" => 0.5,                            # share of material A vs. material B
         "mstruct" => ZincBlende001,             # material structure type
         "femorder" => 1,                        # order of the finite element discretisation (displacement)
+        "use_lowlevel_solver" => true,          # use new implementation based on low level structures (should be faster) 
         "femorder_P" => 1,                      # order of the finite element discretisation (polarisation)
         "nrefs" => 0,                           # number of uniform refinements before solve
         "avgc" => 2,                            # lattice number calculation method (average case)
-        "polarisation" => true,                 # also solve for polarisation
+        "polarisation" => false,                 # also solve for polarisation
         "fully_coupled" => false,               # parameter for later when we have the full model
         "postprocess" => false,                 # angle calculation, vtk files, cuts
         "linsolver" => ExtendableSparse.MKLPardisoLU, # linear solver (try ExtendableSparse.MKLPardisoLU or ExtendableSparse.LUFactorization)
@@ -227,23 +228,39 @@ function main(d = nothing; verbosity = 0, Plotter = nothing, force::Bool = false
     end
 
     ## call solver
-    @unpack nsteps, tres, maxits, linsolver = d
-    if polarisation
-        Solution, residual = solve_by_embedding(Problem, xgrid, parameters;
-                        subiterations = subiterations,
-                        nsteps = [nsteps, 1],
-                        linsolver = linsolver,
-                        FETypes = [FEType_D, FEType_P],
-                        target_residual = [tres, tres],
-                        maxiterations = [maxits, 1])
+    @unpack nsteps, tres, maxits, linsolver, use_lowlevel_solver = d
+    if (use_lowlevel_solver)
+        DisplacementOperator = get_displacement_operator_new(MD.TensorC, strainm, eps0, a; dim = 3, emb = parameters, regions = 1:nregions, bonus_quadorder = quadorder_D)
+        Solution, residual = solve_lowlevel(xgrid, 
+                                Problem.BoundaryOperators,
+                                Problem.GlobalConstraints,
+                                DisplacementOperator,
+                                parameters;
+                                linsolver = linsolver,
+                                subiterations = subiterations,
+                                nsteps = [nsteps, 1],
+                                FETypes = [FEType_D, FEType_P],
+                                target_residual = [tres, tres],
+                                solve_polarisation = false, #polarisation,
+                                maxiterations = [maxits, 1])
     else
-        Solution, residual = solve_by_embedding(Problem, xgrid, parameters;
-                        subiterations = subiterations,
-                        nsteps = [nsteps],
-                        linsolver = linsolver,
-                        FETypes = [FEType_D],
-                        target_residual = [tres],
-                        maxiterations = [maxits])
+        if polarisation
+            Solution, residual = solve_by_embedding(Problem, xgrid, parameters;
+                            subiterations = subiterations,
+                            nsteps = [nsteps, 1],
+                            linsolver = linsolver,
+                            FETypes = [FEType_D, FEType_P],
+                            target_residual = [tres, tres],
+                            maxiterations = [maxits, 1])
+        else
+            Solution, residual = solve_by_embedding(Problem, xgrid, parameters;
+                            subiterations = subiterations,
+                            nsteps = [nsteps],
+                            linsolver = linsolver,
+                            FETypes = [FEType_D],
+                            target_residual = [tres],
+                            maxiterations = [maxits])
+        end
     end
 
     ## add computed data to dict
