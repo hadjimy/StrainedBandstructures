@@ -9,6 +9,11 @@ using Triangulate
 using TetGen
 using LinearAlgebra
 using Printf
+using DiffResults
+using ForwardDiff
+using Symbolics
+using SparseArrays
+using SparseDiffTools
 
 
 
@@ -56,6 +61,7 @@ export NonlinearStrain, NonlinearStrain2D, NonlinearStrain3D
 export eval_strain!
 
 include("pdeoperators.jl")
+export PDEDisplacementOperator, PDEPolarisationOperator
 export get_displacement_operator, get_displacement_operator_new
 export get_polarisation_from_strain_operator
 export get_polarisation_laplacian_operator

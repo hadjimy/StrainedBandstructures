@@ -4,7 +4,7 @@
 ##
 ## note: since (1 + ∇u) is not symmetric, it is tested with full gradient ∇v
 
-mutable struct PDEDisplacementOperator{T, ST <: StrainType, STTType, FTypeVoigtCompress <: Function, FTypeAddGradUxStress <: Function}
+struct PDEDisplacementOperator{T, ST <: StrainType, STTType, FTypeVoigtCompress <: Function, FTypeAddGradUxStress <: Function}
     STT::STTType     # stress tensor ℂ
     misfit_strain::Vector{Vector{T}}
     α::Vector{T}
@@ -49,6 +49,58 @@ function PDEDisplacementOperator(STT, ST, misfit_strain, α, emb, dim)
     add_gradu_x_stress! = (dim == 2) ? add_gradu_x_stress2D! : add_gradu_x_stress3D!
     return PDEDisplacementOperator{Float64, ST, typeof(STT), typeof(uncompress_voigt!), typeof(add_gradu_x_stress!)}(STT,misfit_strain,α,emb,uncompress_voigt!,add_gradu_x_stress!,dim,dim^2)
 end
+
+
+
+struct PDEPolarisationOperator{T, ST <: StrainType, PETType}
+    PET::PETType     # piezo-electricity tensor ℂ
+    misfit_strain::Vector{Vector{T}}
+    κ::Vector{T}
+    F::Matrix{T}     # storage for F, okay in this way for linear operators
+    dim::Int
+    cache_offset::Int
+end
+
+
+(op::PDEPolarisationOperator{T,ST})(result, input, item) where {T,ST} = begin
+    ## input = [∇u, ∇P] written as a vector of length dim^2 + dim
+        # result = E eps(u) - κ * det(F).inv(F).inv(F)^(T) * grad(V_P), where F = 1 + ∇u
+
+        polarisation_offset = op.dim^2
+
+        ## evaluate strain (Voigt notation)
+        eval_strain!(input, input, ST; offset = op.cache_offset)
+
+        ## subtract misfit strain
+        input[op.cache_offset+1:op.cache_offset+op.dim] .-= op.misfit_strain[item[3]]
+
+        # apply piezo-electricity tensor (result = E eps(u))
+        apply_piezoelectricity_tensor!(result, input, op.PET[item[3]]; input_offset = op.cache_offset)
+
+        if (false)        
+            # construct F = I + grad(u)
+            F = zeros(typeof(input[1]), op.dim, op.dim)
+            for i = 1 : op.dim, j = 1 : op.dim
+                F[i,j] = input[op.dim*(i-1)+j]
+            end
+            for i = 1 : op.dim
+                F[i,i] += 1
+            end
+            # subtract κ det(F) inv(FF^T) * ∇P
+            result .-= op.κ[item[3]] * det(F) * inv(transpose(F)*F) * view(input,polarisation_offset+1:polarisation_offset+op.dim)
+        else
+            # subtract κ ∇P
+            result .-= op.κ[item[3]] * view(input,polarisation_offset+1:polarisation_offset+op.dim)
+        end
+
+    return nothing
+end
+
+function PDEPolarisationOperator(PET, ST, misfit_strain, κ, dim)
+    return PDEPolarisationOperator{Float64, ST, typeof(PET)}(PET,misfit_strain,κ,zeros(Float64, dim, dim),dim,dim+dim^2)
+end
+
+
 
 
 function get_displacement_operator_new(
