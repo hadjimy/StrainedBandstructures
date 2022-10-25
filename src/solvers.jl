@@ -515,6 +515,7 @@ function solve_lowlevel(
         @info "Entering embedding step = $step/$(nsteps[1]), emb_params = $emb_params"
             
         iteration = 0
+        time_solver = 0
         while iteration <= maxiterations[1]
             # update system
             time_assembly = @elapsed update_displacement(; coupled = coupled)

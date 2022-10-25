@@ -485,7 +485,8 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
         end
         #interpolate!(eps0_fefunc[1], eps0_datafunc)
 
-        nodevals_ϵ0 = nodevalues(eps0_fefunc[1])
+        # CAREFULL!!! next line somehow modified material map (how???)
+        #nodevals_ϵ0 = nodevalues(eps0_fefunc[1])
 
         
         ## calculate strain from gradient interpolation on cut
@@ -493,10 +494,10 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
             eval_strain!(strain, view(nodevals_gradient,:,j), strain_model)
             for k = 1 : 6
                 nodevals_ϵu[k,j] = strain[k]
-                nodevals_ϵu_elastic[k,j] = strain[k]
-            end
-            for k = 1 : 3
-                nodevals_ϵu_elastic[k,j] -= nodevals_ϵ0[k,j]
+            #     nodevals_ϵu_elastic[k,j] = strain[k]
+            # end
+            # for k = 1 : 3
+            #     nodevals_ϵu_elastic[k,j] -= nodevals_ϵ0[k,j]
             end
         end
 
@@ -523,7 +524,7 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
         kwargs[:displacement] = nodevals
         kwargs[:grad_displacement] = nodevals_gradient
         kwargs[:strain] = nodevals_ϵu
-        kwargs[:elastic_strain] = nodevals_ϵu_elastic
+ #       kwargs[:elastic_strain] = nodevals_ϵu_elastic
         ExtendableGrids.writeVTK(target_folder_cut * "simple_cut_$(cut_level)_data.vtu", cut_grid; kwargs...)
         
         component_names = ["XX","YY","ZZ","YZ","XZ","XY"]
@@ -690,7 +691,7 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
             nnodes_uni = size(xCoordinatesUni,2)
             xdim = size(xCoordinatesUni,1)
             #@printf(io, "CORE STRESSOR OUTSIDE X Y\n")
-            cell::Int = 1
+            cell::Int = 0
             region::Int = 0
             x3D = zeros(Float64,3)
             xCellRegionsUniform = zeros(Int32,num_cells(xgrid_uni))
@@ -706,7 +707,7 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
                 xtest ./= 3.0
                 xtest[1] += xmin
                 xtest[2] += ymin
-                cell = gFindLocal!(xref[1], CF2D, xtest; trybrute = false, eps = eps_gfind)
+                cell = gFindLocal!(xref[1], CF2D, xtest; trybrute = true, eps = eps_gfind)
                 xCellRegionsUniform[cu] = cell == 0 ? 0 : xCellRegionsSimpleCut[cell]
             end
             xgrid_uni[CellRegions] = xCellRegionsUniform
@@ -717,7 +718,7 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
                 end
                 xtest[1] += xmin
                 xtest[2] += ymin
-                cell = gFindLocal!(xref[1], CF2D, xtest; trybrute = false, eps = eps_gfind)
+                cell = gFindLocal!(xref[1], CF2D, xtest; trybrute = true, eps = eps_gfind)
                 region = cell == 0 ? 0 : xCellRegionsSimpleCut[cell]
                 if region == 1
                     @printf(io, "1 0 0 ")
