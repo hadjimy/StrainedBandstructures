@@ -144,9 +144,9 @@ function main(d = nothing; verbosity = 0, Plotter = nothing, force::Bool = false
         xgrid = uniform_refine(xgrid,nrefs)
     else
         geometry = Array{Float64,1}(geometry)
-        geometry[1] /= sqrt(3)
-        geometry[2] /= sqrt(3)
-        #geometry[3] = 6.5
+        geometry[1] /= sqrt(3)  # core hexagon side
+        geometry[2] /= sqrt(3)  # shell hexagon side
+                                # geometry[3] is the stressor width
         if d["uniform_grid"] == true
             d["cut_levels"] = nothing
         else
@@ -154,7 +154,7 @@ function main(d = nothing; verbosity = 0, Plotter = nothing, force::Bool = false
 
         end
         if d["interface_refinement"] == true
-            α = geometry[2]/6
+            α = geometry[3]/2
         else
             α = nothing
         end
@@ -277,7 +277,7 @@ function main(d = nothing; verbosity = 0, Plotter = nothing, force::Bool = false
     ### POSTPROCESS ###
     ###################
     if d["postprocess"]
-        d = postprocess(filename; Plotter = Plotter, cut_levels = geometry[4]/2, simple_cuts=true)
+        d = postprocess(filename; Plotter = Plotter, cut_levels = geometry[4]/2, simple_cuts = true)
         resultd["angle"] = d["angle"]
         resultd["curvature"] = d["curvature"]
         wsave(datadir(watson_datasubdir, filename), resultd)
@@ -359,7 +359,7 @@ function export_vtk(d = nothing; upscaling = 0, kwargs...)
     exportVTK(datadir(watson_datasubdir, filename_vtk), solution[1]; P0strain = true, upscaling = upscaling, strain_model = d["strainm"], eps0 = d["eps0"])
 end
 
-function postprocess(filename = nothing; Plotter = nothing, export_vtk = true, cut_levels = "auto", simple_cuts = true, cut_npoints = 100, vol_cut = "auto", eps_gfind = 1e-12, upscaling = 0, kwargs...)
+function postprocess(filename = nothing; Plotter = nothing, export_vtk = true, cut_levels = "auto", simple_cuts = true, cut_npoints = 200, vol_cut = "auto", eps_gfind = 1e-12, upscaling = 0, kwargs...)
 
     if typeof(filename) <: Dict
         d = filename
@@ -406,7 +406,7 @@ function postprocess(filename = nothing; Plotter = nothing, export_vtk = true, c
     diam = geometry[1] + geometry[2]
     plane_points = [[-0.25*diam,-0.25*diam],[0.25*diam,-0.25*diam],[-0.25*diam,0.25*diam]] # = [X,Y] coordinates of the three points that define the cut plane
     if simple_cuts # needs grid that triangulates cut_levels
-        perform_simple_plane_cuts(datadir(watson_datasubdir, filename_cuts), solution, plane_points, cut_levels; eps0 = eps0, eps_gfind = eps_gfind, cut_npoints = cut_npoints, only_localsearch = true, strain_model = strainm, Plotter = Plotter, upscaling = upscaling)
+        perform_simple_plane_cuts(datadir(watson_datasubdir, filename_cuts), solution, plane_points, cut_levels; eps0 = d["eps0"], eps_gfind = eps_gfind, cut_npoints = cut_npoints, only_localsearch = true, strain_model = strainm, Plotter = Plotter, upscaling = upscaling)
     else
         #perform_plane_cuts(datadir(watson_datasubdir, filename_cuts), solution, plane_points, cut_levels; strain_model = strainm, cut_npoints = cut_npoints, vol_cut = vol_cut, Plotter = Plotter)
     end

@@ -684,6 +684,7 @@ function nanowire_grid(; scale = [1,1,1,1], anisotropy = [1,1,1,1], reflevel = 1
     return xgrid
 end
 
+
 function nanowire_tensorgrid(; scale = [1,1,1,1], nrefs = 1, cut_levels = scale[4]/2, α = nothing, Plotter = nothing, z_levels_dist = 100, version = 1)
 
     @info "Generating nanowire grid for scale = $scale"
@@ -693,10 +694,6 @@ function nanowire_tensorgrid(; scale = [1,1,1,1], nrefs = 1, cut_levels = scale[
     d1 = scale[1]
     d2 = scale[1] + scale[2]
     δ = scale[3]
-    vol_factor_core = 4.0^-nrefs
-    vol_factor_shell = 4.0^-nrefs
-    vol_factor_stressor = 4.0^-nrefs
-    hz_factor = 2.0^-nrefs
 
     A_core = 3*sqrt(3)/2 * scale[1]^2
     A_shell = 3*sqrt(3)/2 * (scale[2]^2 + 2*scale[1]*scale[2])
@@ -705,10 +702,20 @@ function nanowire_tensorgrid(; scale = [1,1,1,1], nrefs = 1, cut_levels = scale[
         A_interface = 3*(d2 * sqrt(3)/2*α)
         A_shell = A_shell - A_interface
         A_stressor = A_stressor - A_interface
-        vol_factor_interface = 4.0^-nrefs
+
+        vol_factor_core = 4.0^-1
+        vol_factor_shell = 4.0^-1
+        vol_factor_interface = 4.0^-(nrefs+1)
+        vol_factor_stressor = 4.0^-nrefs
+    else
+        vol_factor_core = 4.0^-nrefs
+        vol_factor_shell = 4.0^-nrefs
+        vol_factor_stressor = 4.0^-nrefs
     end
+    hz_factor = 2.0^-nrefs
 
     # bottom side at Z = 0
+    # p99= point!(builder,0,-d2)
     p0 = point!(builder,0,0)
     p1 = point!(builder,d1,0)
     p2 = point!(builder,d1/2,sqrt(3)/2*d1)
