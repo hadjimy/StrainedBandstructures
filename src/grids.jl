@@ -3,19 +3,19 @@ function bimetal_strip3D(; material_border = 0.5, scale = [1,1,1], anisotropy = 
     @info "Generating bimetal grid for scale = $scale"
     scale ./= anisotropy
     builder=SimplexGridBuilder(Generator=TetGen)
-    p1=point!(builder,0,0,0)                                                
-    p2=point!(builder,scale[1],0,0)                                         
-    p3=point!(builder,scale[1],scale[2],0)                                  
-    p4=point!(builder,0,scale[2],0)                                         
-    p5=point!(builder,0,0,scale[3])                                         
-    p6=point!(builder,scale[1],0,scale[3])                                  
-    p7=point!(builder,scale[1],scale[2],scale[3])                           
-    p8=point!(builder,0,scale[2],scale[3])                                  
+    p1=point!(builder,0,0,0)
+    p2=point!(builder,scale[1],0,0)
+    p3=point!(builder,scale[1],scale[2],0)
+    p4=point!(builder,0,scale[2],0)
+    p5=point!(builder,0,0,scale[3])
+    p6=point!(builder,scale[1],0,scale[3])
+    p7=point!(builder,scale[1],scale[2],scale[3])
+    p8=point!(builder,0,scale[2],scale[3])
 
-    p9=point!(builder,0,material_border*scale[2],0)                         
-    p10=point!(builder,scale[1],material_border*scale[2],0)                 
-    p11=point!(builder,scale[1],material_border*scale[2],scale[3])          
-    p12=point!(builder,0,material_border*scale[2],scale[3])                 
+    p9=point!(builder,0,material_border*scale[2],0)
+    p10=point!(builder,scale[1],material_border*scale[2],0)
+    p11=point!(builder,scale[1],material_border*scale[2],scale[3])
+    p12=point!(builder,0,material_border*scale[2],scale[3])
 
     facetregion!(builder,1) # bottom (material A) = core front
     facet!(builder,p1 ,p2 ,p10 ,p9)
@@ -150,12 +150,12 @@ function bimetal_strip2D(; material_border = 0.5, scale = [1,1], anisotropy = [1
     @info "Generating 2d bimetal grid for scale = $scale"
     scale ./= anisotropy
     builder=SimplexGridBuilder(Generator=Triangulate)
-    p1=point!(builder,0,0)                                                
-    p2=point!(builder,scale[2],0)                                         
-    p3=point!(builder,scale[2],scale[1])                                 
-    p4=point!(builder,0,scale[1])                                      
+    p1=point!(builder,0,0)
+    p2=point!(builder,scale[2],0)
+    p3=point!(builder,scale[2],scale[1])
+    p4=point!(builder,0,scale[1])
 
-    p5=point!(builder,0,material_border*scale[1])                         
+    p5=point!(builder,0,material_border*scale[1])
     p6=point!(builder,scale[2],material_border*scale[1])
 
 
@@ -195,7 +195,7 @@ function bimetal_strip2D(; material_border = 0.5, scale = [1,1], anisotropy = [1
 
     xgrid = uniform_refine(xgrid,reflevel)
     return xgrid
-    
+
 end
 
 
@@ -685,15 +685,17 @@ function nanowire_grid(; scale = [1,1,1,1], anisotropy = [1,1,1,1], reflevel = 1
 end
 
 
-function nanowire_tensorgrid(; scale = [1,1,1,1], nrefs = 1, cut_levels = scale[4]/2, α = nothing, Plotter = nothing, z_levels_dist = 100, version = 1)
+function nanowire_tensorgrid(; scale = [1,1,1,1], nrefs = 1,
+    cut_levels = scale[4]/2, α = nothing, Plotter = nothing, z_levels_dist = 100, version = 1,
+        corner_refinement = false, manual_refinement = false)
 
     @info "Generating nanowire grid for scale = $scale"
 
-    builder=SimplexGridBuilder(Generator=Triangulate)
+    builder = SimplexGridBuilder(Generator=Triangulate)
 
     d1 = scale[1]
     d2 = scale[1] + scale[2]
-    δ = scale[3]
+    δ  = scale[3]
 
     A_core = 3*sqrt(3)/2 * scale[1]^2
     A_shell = 3*sqrt(3)/2 * (scale[2]^2 + 2*scale[1]*scale[2])
@@ -703,10 +705,10 @@ function nanowire_tensorgrid(; scale = [1,1,1,1], nrefs = 1, cut_levels = scale[
         A_shell = A_shell - A_interface
         A_stressor = A_stressor - A_interface
 
-        vol_factor_core = 4.0^-1
-        vol_factor_shell = 4.0^-1
+        vol_factor_core = 4.0^0
+        vol_factor_shell = 4.0^0
         vol_factor_interface = 4.0^-(nrefs+1)
-        vol_factor_stressor = 4.0^-nrefs
+        vol_factor_stressor = 4.0^0
     else
         vol_factor_core = 4.0^-nrefs
         vol_factor_shell = 4.0^-nrefs
@@ -715,7 +717,6 @@ function nanowire_tensorgrid(; scale = [1,1,1,1], nrefs = 1, cut_levels = scale[
     hz_factor = 2.0^-nrefs
 
     # bottom side at Z = 0
-    # p99= point!(builder,0,-d2)
     p0 = point!(builder,0,0)
     p1 = point!(builder,d1,0)
     p2 = point!(builder,d1/2,sqrt(3)/2*d1)
@@ -750,6 +751,43 @@ function nanowire_tensorgrid(; scale = [1,1,1,1], nrefs = 1, cut_levels = scale[
         p20 = point!(builder,(d2+α)/2,-sqrt(3)/2*(d2+α))
         p21 = point!(builder,-(d2+α)/2,-sqrt(3)/2*(d2+α))
         p22 = point!(builder,-xstar,ystar)
+        if manual_refinement == true
+            num_pts = 8
+            xstar = α/4 + d2*(1 - sqrt(3)*α/2/(4*δ))
+            ystar = - α/2*(2*sqrt(3)*δ + 3*d2)/(4*δ)
+            for n = 0 : num_pts
+                g = n/num_pts
+                ## adding points along the horizontal interface
+                # convex combination between p11 & p16 midpoint and p12 & p17 midpoint
+                px = g*(α/2-d2)/2 + (1-g)*(d2-α/2)/2
+                py = -sqrt(3)/2*(d2-α/2)
+                point!(builder,px,py)
+                # convex combination between p11 & p21 midpoint and p12 & p20 midpoint
+                px = g*(-(d2+α/2)/2) + (1-g)*(d2+α/2)/2
+                py = -sqrt(3)/2*(d2+α/2)
+                point!(builder,px,py)
+
+                ## adding points along the left interface
+                # convex combination between p11 & p16 midpoint and p10 & p15 midpoint
+                px = g*(α/2-d2)/2 + (1-g)*(-d2+α/4)
+                py = g*(-sqrt(3)/2*(d2-α/2)) + (1-g)*sqrt(3)/2*α/2
+                point!(builder,px,py)
+                # convex combination between p11 & p21 midpoint and p10 & p22 midpoint
+                px = g*(-(d2+α/2)/2) + (1-g)*(-xstar)
+                py = g*(-sqrt(3)/2*(d2+α/2)) + (1-g)*ystar
+                point!(builder,px,py)
+
+                ## adding points along the right interface
+                # convex combination between p12 & p17 midpoint and p7 & p18 midpoint
+                px = g*(d2-α/2)/2 + (1-g)*(d2-α/4)
+                py = g*(-sqrt(3)/2*(d2-α/2)) + (1-g)*(sqrt(3)/2*α/2)
+                point!(builder,px,py)
+                # convex combination between p12 & p20 midpoint and p7 & p19 midpoint
+                px = g*(d2+α/2)/2 + (1-g)*(xstar)
+                py = g*(-sqrt(3)/2*(d2+α/2))+(1-g)*ystar
+                point!(builder,px,py)
+            end
+        end
     end
 
     if α !== nothing
@@ -865,7 +903,31 @@ function nanowire_tensorgrid(; scale = [1,1,1,1], nrefs = 1, cut_levels = scale[
         maxvolume!(builder,A_stressor/6*vol_factor_stressor)
         regionpoint!(builder,(0,-sqrt(3)/2*d2-δ/2))
     end
-    xgrid = simplexgrid(builder)
+
+    if corner_refinement == true
+        function unsuitable(x1,y1,x2,y2,x3,y3, area)
+            bary = [(x1+x2+x3)/3,(y2+y2+y3)/3]
+            dist = min(norm(bary-refinement_center1),norm(bary-refinement_center2))
+            if area > 1.0*dist
+                return 1
+            else
+                return 0
+            end
+        end
+
+        refinement_center1 = [-d2/2,-sqrt(3)/2*d2]
+        refinement_center2 = [d2/2,-sqrt(3)/2*d2]
+        options!(builder, unsuitable=unsuitable)
+        xgrid1 = simplexgrid(builder)
+
+        # options!(builder, unsuitable=unsuitable)
+        # xgrid2 = simplexgrid(builder)
+
+        # xgrid = glue(xgrid1,xgrid2)
+        xgrid = xgrid1
+    else
+        xgrid = simplexgrid(builder)
+    end
 
     hz = z_levels_dist * hz_factor
     if cut_levels !== nothing
@@ -875,12 +937,15 @@ function nanowire_tensorgrid(; scale = [1,1,1,1], nrefs = 1, cut_levels = scale[
         for i = 1 : length(cut_levels)
             index = findfirst(item -> item >= cut_levels[i], z_levels)
             if z_levels_nonuniform[index] == cut_levels[i]
-                z_levels_nonuniform[index] = cut_levels[i]-hz/2:hz/4:cut_levels[i]+hz/2
+                z_levels_nonuniform[index] =
+                    cut_levels[i]-hz/2:hz/4:cut_levels[i]+hz/2
             else
                 hz1 = (cut_levels[i]-z_levels_nonuniform[index-1])/2
                 hz2 = (z_levels_nonuniform[index]-cut_levels[i])/2
-                z_levels_nonuniform[index-1] = z_levels_nonuniform[index-1]:hz1:cut_levels[i]
-                z_levels_nonuniform[index]   = cut_levels[i]+hz2:hz2:z_levels_nonuniform[index]
+                z_levels_nonuniform[index-1] =
+                    z_levels_nonuniform[index-1]:hz1:cut_levels[i]
+                z_levels_nonuniform[index] =
+                    cut_levels[i]+hz2:hz2:z_levels_nonuniform[index]
             end
         end
     else
@@ -899,7 +964,7 @@ function nanowire_tensorgrid(; scale = [1,1,1,1], nrefs = 1, cut_levels = scale[
                 cellregions[i] = 3
             end
         end
-        xgrid = simplexgrid(xgrid, z_levels_nonuniform; bot_offset = 5, top_offset = 8)
+        xgrid = simplexgrid(xgrid, z_levels_nonuniform; bot_offset=5, top_offset=8)
         # the offsets lead to the following boundary regions:
         # 1 = side core (not seen from outside)
         # 2 = side shell
@@ -913,7 +978,7 @@ function nanowire_tensorgrid(; scale = [1,1,1,1], nrefs = 1, cut_levels = scale[
         # 10 = top shell
         # 11 = top stressor
     else
-        xgrid = simplexgrid(xgrid, z_levels_nonuniform; bot_offset = 3, top_offset = 6)
+        xgrid = simplexgrid(xgrid, z_levels_nonuniform; bot_offset=3, top_offset=6)
         # the offsets lead to the following boundary regions:
         # 1 = side core (not seen from outside)
         # 2 = side shell
@@ -938,12 +1003,12 @@ function bimetal_tensorgrid(; scale = [1,1,1], nrefs = 1, material_border = 0.5)
     hz_factor = 2.0^-nrefs
 
     builder=SimplexGridBuilder(Generator=Triangulate)
-    p1=point!(builder,0,0)                                                
-    p2=point!(builder,scale[1],0)                                         
-    p3=point!(builder,scale[1],scale[2])                                  
-    p4=point!(builder,0,scale[2])                                         
-    p5=point!(builder,0,material_border*scale[2])                         
-    p6=point!(builder,scale[1],material_border*scale[2])                 
+    p1=point!(builder,0,0)
+    p2=point!(builder,scale[1],0)
+    p3=point!(builder,scale[1],scale[2])
+    p4=point!(builder,0,scale[2])
+    p5=point!(builder,0,material_border*scale[2])
+    p6=point!(builder,scale[1],material_border*scale[2])
 
     facetregion!(builder,10) # interior boundary
     facet!(builder,p5 ,p6)

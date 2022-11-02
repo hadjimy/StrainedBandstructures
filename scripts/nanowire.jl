@@ -28,7 +28,7 @@ watson_datasubdir = "nanowire"
 ## get default parameters
 function get_defaults()
     params = Dict(
-        "shell_x" => 0.3,                       # x value for x-dependent shell material 
+        "shell_x" => 0.3,                       # x value for x-dependent shell material
         "stressor_x" => 0.5,                    # x value for x-dependent stressor material
         "strainm" => NonlinearStrain3D,         # strain model
         "full_nonlin" => true,                  # use complicated model (ignored if linear strain is used)
@@ -41,7 +41,7 @@ function get_defaults()
         "mb" => 0.5,                            # share of material A vs. material B
         "mstruct" => ZincBlende001,             # material structure type
         "femorder" => 1,                        # order of the finite element discretisation (displacement)
-        "use_lowlevel_solver" => true,          # use new implementation based on low level structures (should be faster) 
+        "use_lowlevel_solver" => true,          # use new implementation based on low level structures (should be faster)
         "femorder_P" => 1,                      # order of the finite element discretisation (polarisation)
         "nrefs" => 0,                           # number of uniform refinements before solve
         "avgc" => 2,                            # lattice number calculation method (average case)
@@ -158,7 +158,10 @@ function main(d = nothing; verbosity = 0, Plotter = nothing, force::Bool = false
         else
             α = nothing
         end
-        xgrid = nanowire_tensorgrid(; scale = geometry, nrefs = nrefs, cut_levels = d["cut_levels"], α = α, z_levels_dist = d["z_levels_dist"], version = d["grid_version"])
+        xgrid = nanowire_tensorgrid!(; ; scale = geometry, nrefs = nrefs, cut_levels = d["cut_levels"], α = α,
+            z_levels_dist = d["z_levels_dist"], version = d["grid_version"],
+            corner_refinement = false, manual_refinement = true)
+        #xgrid = nanowire_tensorgrid(; scale = geometry, nrefs = nrefs, cut_levels = d["cut_levels"], α = α, z_levels_dist = d["z_levels_dist"], version = d["grid_version"])
     end
     #xgrid = nanowire_grid(; scale = geometry)
     #gridplot(xgrid; Plotter=Plotter)
@@ -187,10 +190,10 @@ function main(d = nothing; verbosity = 0, Plotter = nothing, force::Bool = false
         if fully_coupled
             # todo
         else
-           # add_operator!(Problem, 1, get_displacement_operator(MD.TensorC[r], strainm, eps0[r][1], a[r]; dim = 3, emb = parameters, regions = [r], bonus_quadorder = quadorder_D)) 
+           # add_operator!(Problem, 1, get_displacement_operator(MD.TensorC[r], strainm, eps0[r][1], a[r]; dim = 3, emb = parameters, regions = [r], bonus_quadorder = quadorder_D))
         end
     end
-    add_operator!(Problem, 1, get_displacement_operator_new(MD.TensorC, strainm, eps0, a; dim = 3, emb = parameters, regions = 1:nregions, bonus_quadorder = quadorder_D)) 
+    add_operator!(Problem, 1, get_displacement_operator_new(MD.TensorC, strainm, eps0, a; dim = 3, emb = parameters, regions = 1:nregions, bonus_quadorder = quadorder_D))
 
     ## add (linear) operators for polarisation equation
     if polarisation
@@ -220,10 +223,10 @@ function main(d = nothing; verbosity = 0, Plotter = nothing, force::Bool = false
         FEType_D = H1P1{3}
         FEType_P = H1P1{1}
     elseif femorder == 2
-        FEType_D = H1P2{3,3} 
+        FEType_D = H1P2{3,3}
         FEType_P = H1P2{1,3}
     elseif femorder == 3
-        FEType_D = H1P3{3,3} 
+        FEType_D = H1P3{3,3}
         FEType_P = H1P3{1,3}
     end
 
@@ -232,7 +235,7 @@ function main(d = nothing; verbosity = 0, Plotter = nothing, force::Bool = false
     if (use_lowlevel_solver)
         DisplacementOperator = PDEDisplacementOperator(MD.TensorC, strainm, eps0, a, parameters, 3) #get_displacement_operator_new(MD.TensorC, strainm, eps0, a; dim = 3, emb = parameters, regions = 1:nregions, bonus_quadorder = quadorder_D)
         PolarisationOperator = PDEPolarisationOperator(MD.TensorE, strainm, eps0, k0 * kr, 3)
-        Solution, residual = solve_lowlevel(xgrid, 
+        Solution, residual = solve_lowlevel(xgrid,
                                 Problem.BoundaryOperators,
                                 Problem.GlobalConstraints,
                                 DisplacementOperator,
@@ -412,7 +415,7 @@ function postprocess(filename = nothing; Plotter = nothing, export_vtk = true, c
     end
 
     return d
-    
+
 end
 
 end
