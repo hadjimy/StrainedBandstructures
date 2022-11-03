@@ -158,7 +158,7 @@ function main(d = nothing; verbosity = 0, Plotter = nothing, force::Bool = false
         else
             α = nothing
         end
-        xgrid = nanowire_tensorgrid!(; ; scale = geometry, nrefs = nrefs, cut_levels = d["cut_levels"], α = α,
+        xgrid = nanowire_tensorgrid(; scale = geometry, nrefs = nrefs, cut_levels = d["cut_levels"], α = α,
             z_levels_dist = d["z_levels_dist"], version = d["grid_version"],
             corner_refinement = false, manual_refinement = true)
         #xgrid = nanowire_tensorgrid(; scale = geometry, nrefs = nrefs, cut_levels = d["cut_levels"], α = α, z_levels_dist = d["z_levels_dist"], version = d["grid_version"])
