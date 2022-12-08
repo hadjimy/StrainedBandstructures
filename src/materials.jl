@@ -2,9 +2,11 @@ abstract type MaterialType end
 abstract type TestMaterial{x} <: MaterialType where {x <: Float64} end
 abstract type GaAs <: MaterialType end
 abstract type AlInAs{x} <: MaterialType where {x <: Float64} end
+abstract type AlGaAs{x} <: MaterialType where {x <: Float64} end
 Base.String(T::Type{<:TestMaterial}) = "Test($(T.parameters[1])))"
 Base.String(::Type{GaAs}) = "GaAs"
 Base.String(T::Type{<:AlInAs}) = "Ai_$(T.parameters[1])In_$(1 - T.parameters[1])As"
+Base.String(T::Type{<:AlGaAs}) = "Ai_$(T.parameters[1])Ga_$(1 - T.parameters[1])As"
 
 struct MaterialDataset{T, MT <: MaterialType}
     ElasticConstants::Dict
@@ -63,9 +65,9 @@ function MaterialDataset(MT::Type{GaAs})
     # Phys. Rev. B 95, 245309 (2017)
     # wurtzite
     ElasticConstants = Dict()
-    ElasticConstants["C11"] = 11.88*100 # GPa
-    ElasticConstants["C12"] =  5.38*100 # GPa
-    ElasticConstants["C44"] =  5.94*100 # GPa
+    ElasticConstants["C11"] = 1188 # GPa
+    ElasticConstants["C12"] =  538 # GPa
+    ElasticConstants["C44"] =  594 # GPa
 
     # piezoelectric constants
     # zinc blende
@@ -78,38 +80,64 @@ function MaterialDataset(MT::Type{GaAs})
     # lattice constants
     lc = 5.65325 * ones(Float64,3)
     #lc = [3.9676, 5.65325, 6.4825]
-    
+
     # C/m2 spontaneous polarization
     Psp = zeros(Float64,3)
 
-    # relative dielectric constant 
+    # relative dielectric constant
     kappar = 13.18
-    
+
     return MaterialDataset{Float64, MT}(ElasticConstants, PiezoElectricConstants, lc, Psp, kappar)
 end
 
 function MaterialDataset(MT::Type{AlInAs{x}}) where {x}
     # elastic constants
     ElasticConstants = Dict()
-    ElasticConstants["C11"] = (x*1250+ (1-x)*832.9)  # GPa
-    ElasticConstants["C12"] = (x*534 + (1-x)*452.6)  # GPa
-    ElasticConstants["C44"] = (x*542 + (1-x)*395.9)  # GPa
+    ElasticConstants["C11"] = x*1250 + (1-x)*832.9   # GPa
+    ElasticConstants["C12"] = x*534  + (1-x)*452.6   # GPa
+    ElasticConstants["C44"] = x*542  + (1-x)*395.9   # GPa
 
     # piezoelectric constants
     PiezoElectricConstants = Dict()
-    PiezoElectricConstants["E31wz"] =   0.1 *x +  0.1*(1-x) # "Spontaneous polarization and piezoelectric constants of III-V nitrides", Bernadini, Fiorentini and Vanderbilt, Phys Rev B
-    PiezoElectricConstants["E33wz"] = -0.01 *x - 0.03*(1-x) # "Spontaneous polarization and piezoelectric constants of III-V nitrides", Bernadini, Fiorentini and Vanderbilt, Phys Rev B
-    PiezoElectricConstants["E15wz"] = PiezoElectricConstants["E31wz"] # ?? -- this value for AlInAs not found yet
-    PiezoElectricConstants["E14zb"] = x*(-0.048) + (1-x)*(-0.115)  # Phys. Rev. B 84, 195207 (2011)
+    PiezoElectricConstants["E31wz"] = x*(0.1)    + (1-x)*0.1            # "Spontaneous polarization and piezoelectric constants of III-V nitrides", Bernadini, Fiorentini and Vanderbilt, Phys Rev B
+    PiezoElectricConstants["E33wz"] = x*(-0.01)  + (1-x)*(-0.03)        # "Spontaneous polarization and piezoelectric constants of III-V nitrides", Bernadini, Fiorentini and Vanderbilt, Phys Rev B
+    PiezoElectricConstants["E15wz"] = PiezoElectricConstants["E31wz"]   # ?? -- this value for AlInAs not found yet
+    PiezoElectricConstants["E14zb"] = x*(-0.048) + (1-x)*(-0.115)       # Phys. Rev. B 84, 195207 (2011)
 
     # lattice constants
-    lc = (5.6605*x+6.0553*(1-x)) * ones(Float64,3)
+    lc = (x*5.6605 + (1-x)*6.0553) * ones(Float64,3)
+
+    # C/m2 spontaneous polarization
+    Psp = zeros(Float64,3)
+
+    # relative dielectric constant
+    kappar = 12.605
+
+    return MaterialDataset{Float64, MT}(ElasticConstants, PiezoElectricConstants, lc, Psp, kappar)
+end
+
+function MaterialDataset(MT::Type{AlGaAs{x}}) where {x}
+    # elastic constants
+    ElasticConstants = Dict()
+    ElasticConstants["C11"] = x*1250 + (1-x)*1188    # GPa
+    ElasticConstants["C12"] = x*534  + (1-x)*538     # GPa
+    ElasticConstants["C44"] = x*542  + (1-x)*594     # GPa
+
+    # piezoelectric constants (take from GaAs / AlAs data above)
+    PiezoElectricConstants = Dict()
+    PiezoElectricConstants["E31wz"] = x*(0.1)    + (1-x)*(0.1328)
+    PiezoElectricConstants["E33wz"] = x*(-0.01)  + (1-x)*(-0.2656)
+    PiezoElectricConstants["E15wz"] = x*(0.1)    + (1-x)*(-0.2656 / 6.4825 * 3.9697)
+    PiezoElectricConstants["E14zb"] = x*(-0.048) + (1-x)*(-0.2656 / 6.4825 * 3.9697)
+
+    # lattice constants
+    lc = (x*5.6605 + (1-x)*5.65325) * ones(Float64,3)
     
     # C/m2 spontaneous polarization
     Psp = zeros(Float64,3)
 
     # relative dielectric constant 
-    kappar = 12.605
+    kappar = 12.605 # NEED TO CORRECT FROM LITERATURE
     
     return MaterialDataset{Float64, MT}(ElasticConstants, PiezoElectricConstants, lc, Psp, kappar)
 end

@@ -20,9 +20,9 @@ using SparseDiffTools
 ## problem: loading and saving grids leads to ElementGeometries -> DataType conversion (by DrWarson/JLD2?) which has to be reverted
 ## after loading (until this is fixed ina more elegant way)
 function repair_grid!(xgrid::ExtendableGrid)
-    xgrid.components[CellGeometries] = VectorOfConstants{ElementGeometries,Int}(xgrid.components[CellGeometries][1], num_cells(xgrid)) 
-    xgrid.components[FaceGeometries] = VectorOfConstants{ElementGeometries,Int}(xgrid.components[FaceGeometries][1], length(xgrid.components[FaceGeometries])) 
-    xgrid.components[BFaceGeometries] = VectorOfConstants{ElementGeometries,Int}(xgrid.components[BFaceGeometries][1], length(xgrid.components[BFaceGeometries])) 
+    xgrid.components[CellGeometries] = VectorOfConstants{ElementGeometries,Int}(xgrid.components[CellGeometries][1], num_cells(xgrid))
+    xgrid.components[FaceGeometries] = VectorOfConstants{ElementGeometries,Int}(xgrid.components[FaceGeometries][1], length(xgrid.components[FaceGeometries]))
+    xgrid.components[BFaceGeometries] = VectorOfConstants{ElementGeometries,Int}(xgrid.components[BFaceGeometries][1], length(xgrid.components[BFaceGeometries]))
 
     xgrid.components[UniqueCellGeometries] = Vector{ElementGeometries}([xgrid.components[CellGeometries][1]])
     xgrid.components[UniqueFaceGeometries] = Vector{ElementGeometries}([xgrid.components[FaceGeometries][1]])
@@ -34,7 +34,7 @@ include("grids.jl")
 export bimetal_strip3D, bimetal_strip2D, bimetal_strip3D_middle_layer, bimetal_tensorgrid, bimetal_tensorgrid_uniform
 export condensator3D, condensator3D_tensorgrid, condensator2D
 export nonpolarquantumwell3D, nonpolarquantumwell2D
-export nanowire_grid, nanowire_tensorgrid
+export nanowire_grid, nanowire_tensorgrid, nanowire_tensorgrid_mirror
 
 include("materialstructuretype.jl")
 export MaterialStructureType
@@ -48,7 +48,7 @@ export apply_elasticity_tensor!, apply_piezoelectricity_tensor!
 
 include("materials.jl")
 export MaterialType
-export TestMaterial, GaAs, AlInAs
+export TestMaterial, GaAs, AlInAs, AlGaAs
 export MaterialDataset
 export get_materialtype
 export MaterialData

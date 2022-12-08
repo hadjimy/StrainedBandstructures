@@ -499,6 +499,9 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
             # for k = 1 : 3
             #     nodevals_ϵu_elastic[k,j] -= nodevals_ϵ0[k,j]
             end
+            for k = 4 : 6
+                nodevals_ϵu[k,j] /= 2
+            end
         end
 
         ## 2D coordinates of the simple grid
@@ -542,10 +545,10 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
                 if isdefined(Plotter,:savefig)
                     Plotter.savefig(target_folder_cut * "simple_cut_$(cut_level)_ϵ$(component_names[k]).png")
                 end
-                scalarplot(cut_grid2D, view(nodevals_ϵu_elastic,k,:), Plotter = Plotter; title = "ϵ_elastic_$(component_names[k]) on cut", fignumber = 1)
-                if isdefined(Plotter,:savefig)
-                    Plotter.savefig(target_folder_cut * "simple_cut_$(cut_level)_ϵ_elastic_$(component_names[k]).png")
-                end
+                # scalarplot(cut_grid2D, view(nodevals_ϵu_elastic,k,:), Plotter = Plotter; title = "ϵ_elastic_$(component_names[k]) on cut", fignumber = 1)
+                # if isdefined(Plotter,:savefig)
+                #     Plotter.savefig(target_folder_cut * "simple_cut_$(cut_level)_ϵ_elastic_$(component_names[k]).png")
+                # end
             end
         end
 
@@ -680,6 +683,10 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
                 end
                 for k = 1 : 3
                     CutSolution_ϵu_elastic.entries[(k-1)*nnodes_uni + j] -= eps0_fefunc_uni.entries[(k-1)*nnodes_uni + j]
+                end
+                for k = 4 : 6
+                    CutSolution_ϵu.entries[(k-1)*nnodes_uni + j] /= 2
+                    CutSolution_ϵu_elastic.entries[(k-1)*nnodes_uni + j] /= 2
                 end
             end
 

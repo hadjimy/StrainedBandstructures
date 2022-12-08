@@ -685,17 +685,15 @@ function nanowire_grid(; scale = [1,1,1,1], anisotropy = [1,1,1,1], reflevel = 1
 end
 
 
-function nanowire_tensorgrid(; scale = [1,1,1,1], nrefs = 1,
-    cut_levels = scale[4]/2, α = nothing, Plotter = nothing, z_levels_dist = 100, version = 1,
-        corner_refinement = false, manual_refinement = false)
+function nanowire_tensorgrid(; scale = [1,1,1,1], nrefs = 1, cut_levels = scale[4]/2, α = nothing, Plotter = nothing, z_levels_dist = 100, version = 1)
 
     @info "Generating nanowire grid for scale = $scale"
 
-    builder = SimplexGridBuilder(Generator=Triangulate)
+    builder=SimplexGridBuilder(Generator=Triangulate)
 
     d1 = scale[1]
     d2 = scale[1] + scale[2]
-    δ  = scale[3]
+    δ = scale[3]
 
     A_core = 3*sqrt(3)/2 * scale[1]^2
     A_shell = 3*sqrt(3)/2 * (scale[2]^2 + 2*scale[1]*scale[2])
@@ -705,10 +703,10 @@ function nanowire_tensorgrid(; scale = [1,1,1,1], nrefs = 1,
         A_shell = A_shell - A_interface
         A_stressor = A_stressor - A_interface
 
-        vol_factor_core = 4.0^0
-        vol_factor_shell = 4.0^0
+        vol_factor_core = 4.0^-1
+        vol_factor_shell = 4.0^-1
         vol_factor_interface = 4.0^-(nrefs+1)
-        vol_factor_stressor = 4.0^0
+        vol_factor_stressor = 4.0^-nrefs
     else
         vol_factor_core = 4.0^-nrefs
         vol_factor_shell = 4.0^-nrefs
@@ -717,6 +715,7 @@ function nanowire_tensorgrid(; scale = [1,1,1,1], nrefs = 1,
     hz_factor = 2.0^-nrefs
 
     # bottom side at Z = 0
+    # p99= point!(builder,0,-d2)
     p0 = point!(builder,0,0)
     p1 = point!(builder,d1,0)
     p2 = point!(builder,d1/2,sqrt(3)/2*d1)
@@ -751,43 +750,6 @@ function nanowire_tensorgrid(; scale = [1,1,1,1], nrefs = 1,
         p20 = point!(builder,(d2+α)/2,-sqrt(3)/2*(d2+α))
         p21 = point!(builder,-(d2+α)/2,-sqrt(3)/2*(d2+α))
         p22 = point!(builder,-xstar,ystar)
-        if manual_refinement == true
-            num_pts = 8
-            xstar = α/4 + d2*(1 - sqrt(3)*α/2/(4*δ))
-            ystar = - α/2*(2*sqrt(3)*δ + 3*d2)/(4*δ)
-            for n = 0 : num_pts
-                g = n/num_pts
-                ## adding points along the horizontal interface
-                # convex combination between p11 & p16 midpoint and p12 & p17 midpoint
-                px = g*(α/2-d2)/2 + (1-g)*(d2-α/2)/2
-                py = -sqrt(3)/2*(d2-α/2)
-                point!(builder,px,py)
-                # convex combination between p11 & p21 midpoint and p12 & p20 midpoint
-                px = g*(-(d2+α/2)/2) + (1-g)*(d2+α/2)/2
-                py = -sqrt(3)/2*(d2+α/2)
-                point!(builder,px,py)
-
-                ## adding points along the left interface
-                # convex combination between p11 & p16 midpoint and p10 & p15 midpoint
-                px = g*(α/2-d2)/2 + (1-g)*(-d2+α/4)
-                py = g*(-sqrt(3)/2*(d2-α/2)) + (1-g)*sqrt(3)/2*α/2
-                point!(builder,px,py)
-                # convex combination between p11 & p21 midpoint and p10 & p22 midpoint
-                px = g*(-(d2+α/2)/2) + (1-g)*(-xstar)
-                py = g*(-sqrt(3)/2*(d2+α/2)) + (1-g)*ystar
-                point!(builder,px,py)
-
-                ## adding points along the right interface
-                # convex combination between p12 & p17 midpoint and p7 & p18 midpoint
-                px = g*(d2-α/2)/2 + (1-g)*(d2-α/4)
-                py = g*(-sqrt(3)/2*(d2-α/2)) + (1-g)*(sqrt(3)/2*α/2)
-                point!(builder,px,py)
-                # convex combination between p12 & p20 midpoint and p7 & p19 midpoint
-                px = g*(d2+α/2)/2 + (1-g)*(xstar)
-                py = g*(-sqrt(3)/2*(d2+α/2))+(1-g)*ystar
-                point!(builder,px,py)
-            end
-        end
     end
 
     if α !== nothing
@@ -903,31 +865,7 @@ function nanowire_tensorgrid(; scale = [1,1,1,1], nrefs = 1,
         maxvolume!(builder,A_stressor/6*vol_factor_stressor)
         regionpoint!(builder,(0,-sqrt(3)/2*d2-δ/2))
     end
-
-    if corner_refinement == true
-        function unsuitable(x1,y1,x2,y2,x3,y3, area)
-            bary = [(x1+x2+x3)/3,(y2+y2+y3)/3]
-            dist = min(norm(bary-refinement_center1),norm(bary-refinement_center2))
-            if area > 1.0*dist
-                return 1
-            else
-                return 0
-            end
-        end
-
-        refinement_center1 = [-d2/2,-sqrt(3)/2*d2]
-        refinement_center2 = [d2/2,-sqrt(3)/2*d2]
-        options!(builder, unsuitable=unsuitable)
-        xgrid1 = simplexgrid(builder)
-
-        # options!(builder, unsuitable=unsuitable)
-        # xgrid2 = simplexgrid(builder)
-
-        # xgrid = glue(xgrid1,xgrid2)
-        xgrid = xgrid1
-    else
-        xgrid = simplexgrid(builder)
-    end
+    xgrid = simplexgrid(builder)
 
     hz = z_levels_dist * hz_factor
     if cut_levels !== nothing
@@ -937,15 +875,12 @@ function nanowire_tensorgrid(; scale = [1,1,1,1], nrefs = 1,
         for i = 1 : length(cut_levels)
             index = findfirst(item -> item >= cut_levels[i], z_levels)
             if z_levels_nonuniform[index] == cut_levels[i]
-                z_levels_nonuniform[index] =
-                    cut_levels[i]-hz/2:hz/4:cut_levels[i]+hz/2
+                z_levels_nonuniform[index] = cut_levels[i]-hz/2:hz/4:cut_levels[i]+hz/2
             else
                 hz1 = (cut_levels[i]-z_levels_nonuniform[index-1])/2
                 hz2 = (z_levels_nonuniform[index]-cut_levels[i])/2
-                z_levels_nonuniform[index-1] =
-                    z_levels_nonuniform[index-1]:hz1:cut_levels[i]
-                z_levels_nonuniform[index] =
-                    cut_levels[i]+hz2:hz2:z_levels_nonuniform[index]
+                z_levels_nonuniform[index-1] = z_levels_nonuniform[index-1]:hz1:cut_levels[i]
+                z_levels_nonuniform[index]   = cut_levels[i]+hz2:hz2:z_levels_nonuniform[index]
             end
         end
     else
@@ -964,7 +899,7 @@ function nanowire_tensorgrid(; scale = [1,1,1,1], nrefs = 1,
                 cellregions[i] = 3
             end
         end
-        xgrid = simplexgrid(xgrid, z_levels_nonuniform; bot_offset=5, top_offset=8)
+        xgrid = simplexgrid(xgrid, z_levels_nonuniform; bot_offset = 5, top_offset = 8)
         # the offsets lead to the following boundary regions:
         # 1 = side core (not seen from outside)
         # 2 = side shell
@@ -978,7 +913,7 @@ function nanowire_tensorgrid(; scale = [1,1,1,1], nrefs = 1,
         # 10 = top shell
         # 11 = top stressor
     else
-        xgrid = simplexgrid(xgrid, z_levels_nonuniform; bot_offset=3, top_offset=6)
+        xgrid = simplexgrid(xgrid, z_levels_nonuniform; bot_offset = 3, top_offset = 6)
         # the offsets lead to the following boundary regions:
         # 1 = side core (not seen from outside)
         # 2 = side shell
@@ -1089,5 +1024,578 @@ function bimetal_tensorgrid_uniform(; scale = [1,1,1], nrefs = 1, material_borde
     bfacemask!(xgrid,[0,h1,Z],[W,H,Z],10) # top stressor
 
     return xgrid
+
+end
+
+
+function nanowire_tensorgrid_mirror(; scale = [1,1,1,1], shape = 1,
+    nrefs = 1, z_nrefs = 2, z_levels_dist = 100, cut_levels = scale[4]/2,
+    refinement_width = nothing, corner_refinement = false, manual_refinement = false, max_nodes = 20)
+
+    @info "Generating nanowire grid for scale = $scale"
+
+    builder = SimplexGridBuilder(Generator=Triangulate)
+    p::Array{Int64,1} = zeros(Int64,max_nodes)
+
+    d1 = scale[1]
+    d2 = scale[1] + scale[2]
+    δ  = scale[3]
+    α = refinement_width
+
+    ## assign nodes
+    p = asign_nodes(p,builder,shape,d1,d2,δ)
+
+    ## assign extra nodes for refinement accross the material interface
+    if refinement_width !== nothing
+        p = interface_refinement(p,builder,shape,d1,d2,δ,refinement_width)
+
+        if manual_refinement == true
+            refine(builder,shape,d1,d2,δ,refinement_width)
+        end
+    end
+
+    ## building edges
+    assign_core_shell_edges(p,builder,shape)
+    assign_stressor_edges(p,builder,shape,refinement_width)
+
+    ## assigning regions
+    assign_regions(p,builder,shape,refinement_width,nrefs,d1,d2,δ)
+
+    # optional refinement at interface corners
+    if corner_refinement == true
+        function unsuitable(x1,y1,x2,y2,x3,y3, area)
+            bary = [(x1+x2+x3)/3,(y2+y2+y3)/3]
+            dist = min(norm(bary-refinement_center1),norm(bary-refinement_center2))
+            if shape == 3
+                dist = min(dist,norm(bary-refinement_center3))
+            end
+            if area > 1.5*dist
+                return 1
+            else
+                return 0
+            end
+        end
+
+        if shape == 1
+            refinement_center1 = [-sqrt(3)/2*d2,-d2/2]
+            refinement_center2 = [0,-d2]
+        else
+            refinement_center1 = [-d2,0]
+            refinement_center2 = [-d2/2,-sqrt(3)/2*d2]
+            refinement_center3 = [-d2/2,sqrt(3)/2*d2]
+        end
+        options!(builder, unsuitable=unsuitable)
+    end
+
+    # build grid
+    xgrid = simplexgrid(builder)
+
+    # mirror grid
+    xgrid_flipped=deepcopy(xgrid)
+    xgrid_flipped[Coordinates][1,:] .*= -1
+    xgrid=glue(xgrid,xgrid_flipped; interface=4)
+    bfacemask!(xgrid,[0,-(d2+δ)],[0,d2+δ],0)
+    if shape == 3
+        xgrid_flipped=deepcopy(xgrid)
+        xgrid_flipped[Coordinates][2,:] .*= -1
+        xgrid=glue(xgrid,xgrid_flipped; interface=4)
+        bfacemask!(xgrid,[-(d2+δ),0],[d2+δ,0],0)
+    end
+    xgrid_cross_section=deepcopy(xgrid)
+
+    # tensor grid in the z-direction
+    hz_factor = 2.0^-z_nrefs
+    hz = z_levels_dist * hz_factor
+    if cut_levels !== nothing
+
+        z_levels = 0:hz:scale[4]
+        z_levels_nonuniform = Vector{Any}(z_levels)
+        for i = 1 : length(cut_levels)
+            index = findfirst(item -> item >= cut_levels[i], z_levels)
+            if z_levels_nonuniform[index] == cut_levels[i]
+                z_levels_nonuniform[index] =
+                    cut_levels[i]-hz/2:hz/4:cut_levels[i]+hz/2
+            else
+                hz1 = (cut_levels[i]-z_levels_nonuniform[index-1])/2
+                hz2 = (z_levels_nonuniform[index]-cut_levels[i])/2
+                z_levels_nonuniform[index-1] =
+                    z_levels_nonuniform[index-1]:hz1:cut_levels[i]
+                z_levels_nonuniform[index] =
+                    cut_levels[i]+hz2:hz2:z_levels_nonuniform[index]
+            end
+        end
+    else
+        z_levels = 0:hz:scale[4]
+        z_levels_nonuniform = Vector{Any}(z_levels)
+    end
+    z_levels_nonuniform = vcat(z_levels_nonuniform...)
+
+    # generating final grid
+    xgrid = simplexgrid(xgrid, z_levels_nonuniform; bot_offset=3, top_offset=6)
+    # the offsets lead to the following boundary regions:
+    # 1 = side core (not seen from outside)
+    # 2 = side shell
+    # 3 = side stressor
+    # 4 = bottom core
+    # 5 = bottom shell
+    # 6 = bottom stressor
+    # 7 = top core
+    # 8 = top shell
+    # 9 = top stressor
+
+    return xgrid, xgrid_cross_section
+end
+
+
+function asign_nodes(p,builder,shape,d1,d2,δ)
+    """
+        Assign nodes for different nanowire cross-section shapes.
+    """
+    if shape == 1
+        p[1] = point!(builder,0,0)
+        p[2] = point!(builder,0,d1)
+        p[3] = point!(builder,-sqrt(3)/2*d1,d1/2)
+        p[4] = point!(builder,-sqrt(3)/2*d1,-d1/2)
+        p[5] = point!(builder,0,-d1)
+        p[6] = point!(builder,0,d2)
+        p[7] = point!(builder,-sqrt(3)/2*d2,d2/2)
+        p[8] = point!(builder,-sqrt(3)/2*d2,-d2/2)
+        p[9] = point!(builder,0,-d2)
+        p[10] = point!(builder,0,-d2-δ)
+        p[11] = point!(builder,-sqrt(3)/2*d2,-d2/2-δ)
+    elseif shape == 2
+        p[1] = point!(builder,0,0)
+        p[2] = point!(builder,0,sqrt(3)/2*d1)
+        p[3] = point!(builder,-d1/2,sqrt(3)/2*d1)
+        p[4] = point!(builder,-d1,0)
+        p[5] = point!(builder,-d1/2,-sqrt(3)/2*d1)
+        p[6] = point!(builder,0,-sqrt(3)/2*d1)
+        p[7] = point!(builder,0,sqrt(3)/2*d2)
+        p[8] = point!(builder,-d2/2,sqrt(3)/2*d2)
+        p[9] = point!(builder,-d2,0)
+        p[10] = point!(builder,-d2/2,-sqrt(3)/2*d2)
+        p[11] = point!(builder,0,-sqrt(3)/2*d2)
+        p[12] = point!(builder,0,-sqrt(3)/2*d2-δ)
+        p[13] = point!(builder,-d2/2,-sqrt(3)/2*d2-δ)
+        p[14] = point!(builder,-d2,-δ)
+    elseif shape == 3
+        p[1] = point!(builder,0,0)
+        p[2] = point!(builder,0,sqrt(3)/2*d1)
+        p[3] = point!(builder,-d1/2,sqrt(3)/2*d1)
+        p[4] = point!(builder,-d1,0)
+        p[5] = point!(builder,0,sqrt(3)/2*d2)
+        p[6] = point!(builder,-d2/2,sqrt(3)/2*d2)
+        p[7] = point!(builder,-d2,0)
+        p[8] = point!(builder,0,sqrt(3)/2*(d2+δ))
+        p[9] = point!(builder,-(d2+δ)/2,sqrt(3)/2*(d2+δ))
+        p[10] = point!(builder,-d2-δ,0)
+    end
+
+    return p
+end
+
+
+function interface_refinement(p,builder,shape,d1,d2,δ,α)
+    """
+        Allocate nodes at additonal regions along the material interface.
+    """
+    if shape == 1
+        if α > d2 - d1 || α > δ
+            @warn "The refinement width cannot be larger than the shell's diameter or stressor width."
+            return nothing
+        end
+
+        p[8] = point!(builder,-sqrt(3)/2*d2,-d2/2+α)
+        p[9] = point!(builder,0,-d2+α)
+        p[10] = point!(builder,0,-d2-δ)
+        p[11] = point!(builder,-sqrt(3)/2*d2,-d2/2-δ)
+        p[12] = point!(builder,-sqrt(3)/2*d2,-d2/2-α)
+        p[13] = point!(builder,0,-d2-α)
+        p[14] = point!(builder,0,-d2)
+        p[15] = point!(builder,-sqrt(3)/2*d2,-d2/2)
+    elseif shape == 2
+        if α >= d2 - d1 || α >= δ/sqrt(3)
+            @warn "The refinement width cannot be larger than the shell's diameter or δ/sqrt(3)."
+            return nothing
+        end
+
+        p[9] = point!(builder,-d2+α/2,sqrt(3)/2*α)
+        p[10] = point!(builder,(α-d2)/2,-sqrt(3)/2*(d2-α))
+        p[11] = point!(builder,0,-sqrt(3)/2*(d2-α))
+        p[15] = point!(builder,0,-sqrt(3)/2*d2)
+        p[16] = point!(builder,-d2/2,-sqrt(3)/2*d2)
+        p[17] = point!(builder,-d2,0)
+        p[18] = point!(builder,-d2,-sqrt(3)*α)
+        p[19] = point!(builder,-(d2+α)/2,-sqrt(3)/2*(d2+α))
+        p[20] = point!(builder,0,-sqrt(3)/2*(d2+α))
+    elseif shape == 3
+        if α > d2 - d1 || α > δ
+            @warn "The refinement width cannot be larger than the shell's or stressor's diameter."
+            return nothing
+        end
+        p[5] = point!(builder,0,sqrt(3)/2*(d2-α))
+        p[6] = point!(builder,(α-d2)/2,sqrt(3)/2*(d2-α))
+        p[7] = point!(builder,-d2+α,0)
+        p[8] = point!(builder,0,sqrt(3)/2*d2)
+        p[9] = point!(builder,-d2/2,sqrt(3)/2*d2)
+        p[10] = point!(builder,-d2,0)
+        p[11] = point!(builder,0,sqrt(3)/2*(d2+α))
+        p[12] = point!(builder,-(α+d2)/2,sqrt(3)/2*(d2+α))
+        p[13] = point!(builder,-d2-α,0)
+        p[14] = point!(builder,0,sqrt(3)/2*(d2+δ))
+        p[15] = point!(builder,-(d2+δ)/2,sqrt(3)/2*(d2+δ))
+        p[16] = point!(builder,-d2-δ,0)
+    end
+
+    return p
+end
+
+
+function refine(builder,shape,d1,d2,δ,α)
+	"""
+		Assign points along the middle of the each interface region to enable a
+		uniform refinement.
+	"""
+	if shape == 1
+		num_pts = trunc(Int, 4*δ/α)
+		for n = 0 : num_pts
+			g = n/num_pts
+			# convex combination between p8 & p15 midpoint and p9 & p14 midpoint
+			px = g*(-sqrt(3)/2*d2)
+			py = g*(-d2/2+α/2) + (1-g)*(-d2+α/2)
+			point!(builder,px,py)
+			# convex combination between p15 & p12 midpoint and p14 & p13 midpoint
+			px = g*(-sqrt(3)/2*d2)
+			py = g*(-d2/2-α/2) + (1-g)*(-d2-α/2)
+			point!(builder,px,py)
+		end
+	elseif shape == 2
+		num_pts = trunc(Int, 4*δ/(sqrt(3)*α))
+		for n = 0 : num_pts
+			g = n/num_pts
+			## adding points along the horizontal interface
+			# convex combination between p10 & p16 midpoint and p11 & p15 midpoint
+			px = g*(α/2-d2)/2
+			py = -sqrt(3)/2*(d2-α/2)
+			point!(builder,px,py)
+			# convex combination between p16 & p19 midpoint and p15 & p20 midpoint
+			px = g*(-(d2+α/2)/2)
+			py = -sqrt(3)/2*(d2+α/2)
+			point!(builder,px,py)
+		end
+		num_pts = 2*num_pts
+		for n = 0 : num_pts-1
+			g = n/num_pts
+			## adding points along the left interface
+			# convex combination between p9 & p17 midpoint and p10 & p16 midpoint
+			px = g*(-d2+α/4) + (1-g)*(α/2-d2)/2
+			py = g*sqrt(3)/2*α/2 + (1-g)*(-sqrt(3)/2*(d2-α/2))
+			point!(builder,px,py)
+			# convex combination between p17 & p18 midpoint and p16 & p19 midpoint
+			px = g*(-d2) + (1-g)*(-(d2+α/2)/2)
+			py = g*(-sqrt(3)*α/2) + (1-g)*(-sqrt(3)/2*(d2+α/2))
+			point!(builder,px,py)
+		end
+	elseif shape == 3
+		num_pts = trunc(Int, 2*δ/α)
+		for n = 0 : num_pts-1
+			g = n/num_pts
+			# convex combination between p5 & p8 midpoint and p6 & p9 midpoint
+			px = (1-g)*(α/2-d2)/2
+			py = sqrt(3)/2*(d2-α/2)
+			point!(builder,px,py)
+			# convex combination between p8 & p11 midpoint and p9 & p12 midpoint
+			px = (1-g)*(-α/2-d2)/2
+			py = sqrt(3)/2*(d2+α/2)
+			point!(builder,px,py)
+		end
+		num_pts = 2*num_pts
+		for n = 0 : num_pts-1
+			g = n/num_pts
+			# convex combination between p6 & p9 midpoint and p7 & p10 midpoint
+			px = g*(α/2-d2)/2 + (1-g)*(-d2+α/2)
+			py = g*sqrt(3)/2*(d2-α/2)
+			point!(builder,px,py)
+			# convex combination between p9 & p12 midpoint and p10 & p13 midpoint
+			px = g*(-α/2-d2)/2 + (1-g)*(-d2-α/2)
+			py = g*sqrt(3)/2*(d2+α/2)
+			point!(builder,px,py)
+		end
+	end
+
+end
+
+
+function assign_core_shell_edges(p,builder,shape)
+    """
+        Assign edges.
+    """
+    if shape == 1
+        facetregion!(builder,1) # core region
+        facet!(builder,p[1],p[2])
+        facet!(builder,p[2],p[3])
+        facet!(builder,p[3],p[4])
+        facet!(builder,p[4],p[5])
+        facet!(builder,p[5],p[1])
+
+        facetregion!(builder,2) # shell region
+        facet!(builder,p[2],p[6])
+        facet!(builder,p[6],p[7])
+        facet!(builder,p[7],p[8])
+        facet!(builder,p[8],p[9])
+        facet!(builder,p[9],p[5])
+    elseif shape == 2
+        facetregion!(builder,1) # core region
+        facet!(builder,p[1],p[2])
+        facet!(builder,p[2],p[3])
+        facet!(builder,p[3],p[4])
+        facet!(builder,p[4],p[5])
+        facet!(builder,p[5],p[6])
+        facet!(builder,p[6],p[1])
+
+        facetregion!(builder,2) # shell region
+        facet!(builder,p[2],p[7])
+        facet!(builder,p[7],p[8])
+        facet!(builder,p[8],p[9])
+        facet!(builder,p[9],p[10])
+        facet!(builder,p[10],p[11])
+        facet!(builder,p[11],p[6])
+    elseif shape == 3
+        facetregion!(builder,1) # core region
+        facet!(builder,p[1],p[2])
+        facet!(builder,p[2],p[3])
+        facet!(builder,p[3],p[4])
+        facet!(builder,p[4],p[1])
+
+        facetregion!(builder,2) # shell region
+        facet!(builder,p[2],p[5])
+        facet!(builder,p[5],p[6])
+        facet!(builder,p[6],p[7])
+        facet!(builder,p[7],p[4])
+    end
+end
+
+
+function assign_stressor_edges(p,builder,shape,refinement_width)
+    """
+        Assign stressor edges.
+    """
+    if refinement_width == nothing
+        facetregion!(builder,3) # stressor region
+        if shape == 1
+            facet!(builder,p[9],p[10])
+            facet!(builder,p[10],p[11])
+            facet!(builder,p[11],p[8])
+        elseif shape == 2
+            facet!(builder,p[11],p[12])
+            facet!(builder,p[12],p[13])
+            facet!(builder,p[13],p[14])
+            facet!(builder,p[14],p[9])
+        elseif shape == 3
+            facet!(builder,p[5],p[8])
+            facet!(builder,p[8],p[9])
+            facet!(builder,p[9],p[10])
+            facet!(builder,p[10],p[7])
+        end
+    else
+        if shape == 1
+            facetregion!(builder,2) # interface shell region
+            facet!(builder,p[9],p[14])
+            facet!(builder,p[14],p[15])
+            facet!(builder,p[15],p[8])
+
+            facetregion!(builder,3) # interface stressor region
+            facet!(builder,p[15],p[12])
+            facet!(builder,p[12],p[13])
+            facet!(builder,p[13],p[14])
+
+            facetregion!(builder,3) # stressor region
+            facet!(builder,p[13],p[10])
+            facet!(builder,p[10],p[11])
+            facet!(builder,p[11],p[12])
+        elseif shape == 2
+            facetregion!(builder,2) # interface shell region
+            facet!(builder,p[11],p[15])
+            facet!(builder,p[15],p[16])
+            facet!(builder,p[16],p[17])
+            facet!(builder,p[17],p[9])
+
+            facetregion!(builder,3) # interface stressor region
+            facet!(builder,p[17],p[18])
+            facet!(builder,p[18],p[19])
+            facet!(builder,p[19],p[20])
+            facet!(builder,p[20],p[15])
+
+            facetregion!(builder,3) # stressor region
+            facet!(builder,p[20],p[12])
+            facet!(builder,p[12],p[13])
+            facet!(builder,p[13],p[14])
+            facet!(builder,p[14],p[18])
+        elseif shape == 3
+            facetregion!(builder,2) # interface shell region
+            facet!(builder,p[5],p[8])
+            facet!(builder,p[8],p[9])
+            facet!(builder,p[9],p[10])
+            facet!(builder,p[10],p[7])
+
+            facetregion!(builder,3) # interface stressor region
+            facet!(builder,p[8],p[11])
+            facet!(builder,p[11],p[12])
+            facet!(builder,p[12],p[13])
+            facet!(builder,p[13],p[10])
+
+            facetregion!(builder,3) # stressor region
+            facet!(builder,p[11],p[14])
+            facet!(builder,p[14],p[15])
+            facet!(builder,p[15],p[16])
+            facet!(builder,p[16],p[13])
+        end
+    end
+end
+
+
+function assign_regions(p,builder,shape,refinement_width,nrefs,d1,d2,δ)
+    """
+        Assign regions.
+    """
+    A_core = 1/2 * (3*sqrt(3)/2*d1^2)
+    A_shell = 1/2 * (3*sqrt(3)/2*(d2^2 - d1^2))
+
+    vol_factor_core = 4.0^-nrefs
+    vol_factor_shell = 4.0^-nrefs
+    vol_factor_stressor = 4.0^-nrefs
+
+    if shape == 1
+
+        A_stressor = δ*d2
+
+        if refinement_width == nothing
+            cellregion!(builder,3) # material 3 (stressor)
+            maxvolume!(builder,A_stressor*vol_factor_stressor)
+            regionpoint!(builder,(-sqrt(3)/4*d2,-d2))
+        else
+            α = refinement_width
+            A_interface_interior = d2*α
+            # the refinement area of the stressor region is the same as the
+            # refinement region in the shell
+            A_interface_exterior = A_interface_interior
+            A_shell = A_shell - A_interface_interior
+            A_stressor = A_stressor - A_interface_exterior
+
+            vol_factor_core = 4.0^-(nrefs-1)
+            vol_factor_interface = 4.0^-nrefs
+            vol_factor_stressor = 4.0^-(nrefs-1)
+
+            cellregion!(builder,2) # material 2 (interface shell)
+            maxvolume!(builder,A_interface_interior*vol_factor_interface)
+            regionpoint!(builder,(-sqrt(3)/4*d2,1/2*(-3/2*d2+α)))
+
+            cellregion!(builder,3) # material 3 (interface stressor)
+            maxvolume!(builder,A_interface_exterior*vol_factor_interface)
+            regionpoint!(builder,(-sqrt(3)/4*d2,1/2*(-3/2*d2-α)))
+
+            cellregion!(builder,3) # material 3 (stressor)
+            maxvolume!(builder,A_stressor*vol_factor_stressor)
+            regionpoint!(builder,(-sqrt(3)/4*d2,-3/4*d2-(δ+α)/2)) # -d2-δ+d2/4+(δ-α)/2
+        end
+
+        cellregion!(builder,1) # material 1 (core)
+        maxvolume!(builder,A_core*vol_factor_core)
+        regionpoint!(builder,(-sqrt(3)/4*d1,0))
+
+        cellregion!(builder,2) # material 2 (shell)
+        maxvolume!(builder,A_shell*vol_factor_shell)
+        regionpoint!(builder,(-sqrt(3)/2*(d1+d2)/2),0)
+
+    elseif shape == 2
+
+        A_stressor = 1/2 * (δ*(d2 + δ/sqrt(3)) + δ*d2)
+
+        if refinement_width == nothing
+            cellregion!(builder,3) # material 3 (stressor)
+            maxvolume!(builder,A_stressor*vol_factor_stressor)
+            regionpoint!(builder,(-d1/2,-sqrt(3)/2*d2-δ/2))
+        else
+            α = refinement_width
+            A_interface_interior = (2*d2-α)*sqrt(3)/2*α + d2*α
+            # the refinement area of the stressor region is almost the same as the
+            # refinement region in the shell
+            A_interface_exterior = A_interface_interior
+            A_shell = A_shell - A_interface_interior
+            A_stressor = A_stressor - A_interface_exterior
+
+            vol_factor_core = 4.0^-(nrefs-1)
+            vol_factor_interface = 4.0^-nrefs
+            vol_factor_stressor = 4.0^-(nrefs-1)
+
+            cellregion!(builder,2) # material 2 (interface shell)
+            maxvolume!(builder,A_interface_interior*vol_factor_interface)
+            regionpoint!(builder,((α/2-d2)/2,-sqrt(3)/2*(d2-α/2)))
+
+            cellregion!(builder,3) # material 3 (interface stressor)
+            maxvolume!(builder,A_interface_exterior*vol_factor_interface)
+            regionpoint!(builder,(-(d2+α/2)/2,-sqrt(3)/2*(d2+α/2)))
+
+            cellregion!(builder,3) # material 3 (stressor)
+            maxvolume!(builder,A_stressor*vol_factor_stressor)
+            regionpoint!(builder,(-d1/2,-sqrt(3)/2*d2-(δ+α)/2))
+        end
+
+        cellregion!(builder,1) # material 1 (core)
+        maxvolume!(builder,A_core*vol_factor_core)
+        regionpoint!(builder,(-d1/2,0))
+
+        cellregion!(builder,2) # material 2 (shell)
+        maxvolume!(builder,A_shell*vol_factor_shell)
+        regionpoint!(builder,(-d1/2,sqrt(3)/2*(d1+d2)/2))
+
+    elseif shape == 3
+
+        A_core /= 2
+        A_shell /= 2
+        A_stressor = 1/4 * (3*sqrt(3)/2*((d2+δ)^2 - d2^2))
+
+        if refinement_width == nothing
+            cellregion!(builder,2) # material 2 (shell)
+            maxvolume!(builder,A_shell*vol_factor_shell)
+            regionpoint!(builder,(-d2/4,sqrt(3)/2*(d1+d2)/2))
+
+            cellregion!(builder,3) # material 3 (stressor)
+            maxvolume!(builder,A_stressor*vol_factor_stressor)
+            regionpoint!(builder,(-(d2+δ)/4,sqrt(3)/2*(2*d2+δ)/2))
+        else
+            α = refinement_width
+            A_interface_interior = 3/2 * (2*d2-α)*sqrt(3)/2*α
+            A_interface_exterior = 3/2 * (2*d2+α)*sqrt(3)/2*α
+            A_shell = A_shell - A_interface_interior
+            A_stressor = A_stressor - A_interface_exterior
+
+            vol_factor_core = 4.0^-(nrefs-1)
+            vol_factor_shell = 4.0^-(nrefs-1)
+            vol_factor_interface = 4.0^-nrefs
+            vol_factor_stressor = 4.0^-(nrefs-1)
+
+            cellregion!(builder,2) # material 2 (shell)
+            maxvolume!(builder,A_shell*vol_factor_shell)
+            regionpoint!(builder,(-d2/4,sqrt(3)/2*(d1+d2-α)/2))
+
+            cellregion!(builder,2) # material 2 (interface shell)
+            maxvolume!(builder,A_interface_interior*vol_factor_interface)
+            regionpoint!(builder,(-d2/4,sqrt(3)/2*(d2-α/2)))
+
+            cellregion!(builder,3) # material 3 (interface stressor)
+            maxvolume!(builder,A_interface_exterior*vol_factor_interface)
+            regionpoint!(builder,(-d2/4,sqrt(3)/2*(d2+α/2)))
+
+            cellregion!(builder,3) # material 3 (stressor)
+            maxvolume!(builder,A_stressor*vol_factor_stressor)
+            regionpoint!(builder,(-(d2+δ)/4,sqrt(3)/2*(2*d2+δ+α)/2))
+        end
+
+        cellregion!(builder,1) # material 1 (core)
+        maxvolume!(builder,A_core*vol_factor_core)
+        regionpoint!(builder,(-d1/4,sqrt(3)/2*d1/2))
+
+    end
 
 end

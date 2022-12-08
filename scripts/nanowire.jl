@@ -20,7 +20,7 @@ using Pardiso
 @quickactivate "NanoWiresJulia" # <- project name
 # set parameters that should be included in filename
 #watson_accesses = ["mstruct", "geometry", "scenario", "shell_x", "stressor_x", "full_nonlin", "nrefs", "femorder", "femorder_P"]
-watson_accesses = ["geometry", "nrefs", "femorder", "stressor_x", "uniform_grid", "interface_refinement", "z_levels_dist"]
+watson_accesses = ["geometry", "nrefs", "femorder", "stressor_x", "uniform_grid", "interface_refinement", "z_levels_dist", "cross_section"]
 watson_allowedtypes = (Real, String, Symbol, Array, DataType)
 watson_datasubdir = "nanowire"
 
@@ -53,7 +53,8 @@ function get_defaults()
         "interface_refinement" => false,        # enables a finer grid at material interface for each cross-section
         "z_levels_dist" => 100,                 # distance between z-levels is z_levels_dist * 2^(-nrefs)
         "cut_levels_pos" => [0.5],              # position of cut-levels w.r.t. nanowire length. i.e., cut_levels = cut_levels_pos * geometry[4]
-        "grid_version" => 1                     # geometry of stressor; either version 1 or 2
+        "cross_section" => 1,                    # geometry of stressor; either version 1 or 2
+        "corner_refinement" => false            # assigning more nodes at interface corners
     )
     return params
 end
@@ -71,6 +72,8 @@ function get_scenario(scenario, shell_x, stressor_x, materialstructuretype)
         materials = [GaAs,GaAs,AlInAs{stressor_x}] # scenario 1
     elseif scenario == 2
         materials = [GaAs,AlInAs{shell_x},AlInAs{stressor_x}] # scenario 2
+    elseif scenario == 3
+        materials = [GaAs,GaAs,AlGaAs{stressor_x}] # scenario 3
     else
         @error "scenario not defined"
     end
@@ -154,17 +157,19 @@ function main(d = nothing; verbosity = 0, Plotter = nothing, force::Bool = false
 
         end
         if d["interface_refinement"] == true
-            α = geometry[3]/2
+            refinement_width = 1/4*geometry[3]
+            manual_refinement = true
         else
-            α = nothing
+            refinement_width = nothing
+            manual_refinement = false
         end
-        xgrid = nanowire_tensorgrid(; scale = geometry, nrefs = nrefs, cut_levels = d["cut_levels"], α = α,
-            z_levels_dist = d["z_levels_dist"], version = d["grid_version"],
-            corner_refinement = false, manual_refinement = true)
-        #xgrid = nanowire_tensorgrid(; scale = geometry, nrefs = nrefs, cut_levels = d["cut_levels"], α = α, z_levels_dist = d["z_levels_dist"], version = d["grid_version"])
+        xgrid, xgrid_cross_section = nanowire_tensorgrid_mirror(; scale = geometry, nrefs = nrefs, z_nrefs = 2, shape = d["cross_section"],
+                                            cut_levels = d["cut_levels"], z_levels_dist = d["z_levels_dist"],
+                                            refinement_width = refinement_width, corner_refinement = d["corner_refinement"],
+                                            manual_refinement = manual_refinement)
     end
     #xgrid = nanowire_grid(; scale = geometry)
-    #gridplot(xgrid; Plotter=Plotter)
+    gridplot(xgrid_cross_section; Plotter=Plotter)
     @show xgrid
 
 
@@ -178,11 +183,7 @@ function main(d = nothing; verbosity = 0, Plotter = nothing, force::Bool = false
     subiterations = [[1]]
 
     ## add Dirichlet boundary data on front
-    if d["interface_refinement"] == true
-        regions_bc = [6,7,8] # 6 = core bottom, 7 = shell bottom, 8 = stressor bottom
-    else
-        regions_bc = [4,5,6]  # 4 = core bottom, 5 = shell bottom, 6 = stressor bottom
-    end
+    regions_bc = [4,5,6]  # 4 = core bottom, 5 = shell bottom, 6 = stressor bottom
     add_boundarydata!(Problem, 1, regions_bc, HomogeneousDirichletBoundary)
 
     ## add (nonlinear) operators for displacement equation

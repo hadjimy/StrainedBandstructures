@@ -28,6 +28,9 @@ function exportVTK(filename, Displacement::FEVectorBlock{T,Tv,Ti,FEType,APT}, Po
             result[2] -= misfit[item[3]][2]
             result[3] -= misfit[item[3]][3]
         end
+        result[4] /= 2
+        result[5] /= 2
+        result[6] /= 2
         return nothing
     end
     interpolate_action = Action(interpolate_postprocess, [size_ϵu, ncomponents^2]; dependencies = "I")
