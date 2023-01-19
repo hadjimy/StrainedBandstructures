@@ -18,7 +18,7 @@ end
 
 (op::PDEDisplacementOperator{T,ST})(result, input, item) where {T,ST} = begin
     ## input = [∇u] written as a vector of length dim^2
-    ## result = (1 + ∇u) ℂϵ(u) / (1 + α) written as a vector of length dim^2 (to be multiplied by ∇v)
+    ## result = 1/(1 + α) * (1 + ∇u) ℂ (ϵ(u) - ϵ_0(u)) written as a vector of length dim^2 (to be multiplied by ∇v)
 
     ## evaluate strain into result (Voigt notation)
     eval_strain!(result, input, ST)
@@ -38,8 +38,8 @@ end
         op.add_gradu_x_stress!(result, input; factor = op.emb[1], offset = op.cache_offset)
     end
 
-    ## multiply by -1/(1 + α) * I
-    result .*= -1 / (1 .+ op.α[item[3]])
+    ## multiply by 1/(1 + α) * I
+    result .*= 1 / (1 .+ op.α[item[3]])
 
     return nothing
 end
@@ -387,8 +387,8 @@ end
 #
 @inline function uncompress_voigt2D!(result, input; offset = 0)
     result[1] = input[offset+1]
-    result[2] = input[offset+3]
-    result[3] = input[offset+3]
+    result[2] = input[offset+3]/2
+    result[3] = input[offset+3]/2
     result[4] = input[offset+2]
     return nothing
 end
@@ -398,21 +398,22 @@ end
 #                               [1 6 5
 # 3D Voigt(S) [1,2,3,4,5,6] -->  6 2 4
 #                                5 4 3]
+# where off-diagonal components must be divided by 2.
 @inline function uncompress_voigt3D!(result, input; offset = 0)
     result[1] = input[offset+1]
-    result[2] = input[offset+6]
-    result[3] = input[offset+5]
-    result[4] = input[offset+6]
+    result[2] = input[offset+6]/2
+    result[3] = input[offset+5]/2
+    result[4] = input[offset+6]/2
     result[5] = input[offset+2]
-    result[6] = input[offset+4]
-    result[7] = input[offset+5]
-    result[8] = input[offset+4]
+    result[6] = input[offset+4]/2
+    result[7] = input[offset+5]/2
+    result[8] = input[offset+4]/2
     result[9] = input[offset+3]
     return nothing
 end
 
 # some helper functions to compute 
-#    result .+= ∇u σ(u) (matrix-matrix product)
+# result .+= factor * (∇u σ(u))  (matrix-matrix product)
 # input = [∇u, σ(u)]
 @inline function add_gradu_x_stress2D!(result, input; offset = 0, factor = 1)
     result[1] += factor*(input[offset+1]*input[1] + input[offset+3]*input[2])

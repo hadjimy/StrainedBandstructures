@@ -531,17 +531,21 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
         ExtendableGrids.writeVTK(target_folder_cut * "simple_cut_$(cut_level)_data.vtu", cut_grid; kwargs...)
         
         component_names = ["XX","YY","ZZ","YZ","XZ","XY"]
+        xmin = minimum(view(xCoordinatesCutPlane,a,:))
+        xmax = maximum(view(xCoordinatesCutPlane,a,:))
+        ymin = minimum(view(xCoordinatesCutPlane,b,:))
+        ymax = maximum(view(xCoordinatesCutPlane,b,:))
         if do_simplecut_plots
             @info "Plotting data on simple cut grid..."
             labels = ["ux","uy","uz"]
             for j = 1 : 3
-                scalarplot(cut_grid2D, view(nodevals,j,:), Plotter = Plotter; title = "$(labels[j]) on cut", fignumber = 1)
+                scalarplot(cut_grid2D, view(nodevals,j,:), Plotter = Plotter; xlimits = (xmin-2,xmax+2), ylimits = (ymin-2,ymax+2), title = "$(labels[j]) on cut", fignumber = 1)
                 if isdefined(Plotter,:savefig)
                     Plotter.savefig(target_folder_cut * "simple_cut_$(cut_level)_$(labels[j]).png")
                 end
             end
             for k = 1 : 6
-                scalarplot(cut_grid2D, view(nodevals_ϵu,k,:), Plotter = Plotter; title = "ϵ_$(component_names[k]) on cut", fignumber = 1)
+                scalarplot(cut_grid2D, view(nodevals_ϵu,k,:), Plotter = Plotter; xlimits = (xmin-2,xmax+2), ylimits = (ymin-2,ymax+2), title = "ϵ_$(component_names[k]) on cut", fignumber = 1)
                 if isdefined(Plotter,:savefig)
                     Plotter.savefig(target_folder_cut * "simple_cut_$(cut_level)_ϵ$(component_names[k]).png")
                 end
@@ -579,12 +583,12 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
             @info "maximal difference between cut direction coordinates = $(z_error)"
             #invR = inv(R)
 
-
             ## define bounding box and uniform cut grid
-            xmin = minimum(view(xCoordinatesCutPlane,a,:))
-            xmax = maximum(view(xCoordinatesCutPlane,a,:))
-            ymin = minimum(view(xCoordinatesCutPlane,b,:))
-            ymax = maximum(view(xCoordinatesCutPlane,b,:))
+            d = [xmax - xmin,ymax - ymin]
+            xmin -= d[1]*0.01
+            xmax += d[1]*0.01
+            ymin -= d[2]*0.01
+            ymax += d[2]*0.01
             h_uni = [xmax - xmin,ymax - ymin] ./ (cut_npoints-1)
             Xuni = zeros(Float64,0)
             Yuni = zeros(Float64,0)

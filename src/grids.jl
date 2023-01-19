@@ -1099,7 +1099,7 @@ function nanowire_tensorgrid_mirror(; scale = [1,1,1,1], shape = 1,
         xgrid_flipped=deepcopy(xgrid)
         xgrid_flipped[Coordinates][2,:] .*= -1
         xgrid=glue(xgrid,xgrid_flipped; interface=4)
-        bfacemask!(xgrid,[-(d2+δ),0],[d2+δ,0],0)
+        bfacemask!(xgrid,[-(d2+2/sqrt(3)*δ),0],[d2+2/sqrt(3)*δ,0],0)
     end
     xgrid_cross_section=deepcopy(xgrid)
 
@@ -1186,9 +1186,9 @@ function asign_nodes(p,builder,shape,d1,d2,δ)
         p[5] = point!(builder,0,sqrt(3)/2*d2)
         p[6] = point!(builder,-d2/2,sqrt(3)/2*d2)
         p[7] = point!(builder,-d2,0)
-        p[8] = point!(builder,0,sqrt(3)/2*(d2+δ))
-        p[9] = point!(builder,-(d2+δ)/2,sqrt(3)/2*(d2+δ))
-        p[10] = point!(builder,-d2-δ,0)
+        p[8] = point!(builder,0,sqrt(3)/2*d2+δ)
+        p[9] = point!(builder,-(d2+2/sqrt(3)*δ)/2,sqrt(3)/2*d2+δ)
+        p[10] = point!(builder,-d2-2/sqrt(3)*δ,0)
     end
 
     return p
@@ -1242,9 +1242,9 @@ function interface_refinement(p,builder,shape,d1,d2,δ,α)
         p[11] = point!(builder,0,sqrt(3)/2*(d2+α))
         p[12] = point!(builder,-(α+d2)/2,sqrt(3)/2*(d2+α))
         p[13] = point!(builder,-d2-α,0)
-        p[14] = point!(builder,0,sqrt(3)/2*(d2+δ))
-        p[15] = point!(builder,-(d2+δ)/2,sqrt(3)/2*(d2+δ))
-        p[16] = point!(builder,-d2-δ,0)
+        p[14] = point!(builder,0,sqrt(3)/2*d2+δ)
+        p[15] = point!(builder,-(d2+2/sqrt(3)*δ)/2,sqrt(3)/2*d2+δ)
+        p[16] = point!(builder,-d2-2/sqrt(3)*δ,0)
     end
 
     return p
@@ -1252,76 +1252,76 @@ end
 
 
 function refine(builder,shape,d1,d2,δ,α)
-	"""
-		Assign points along the middle of the each interface region to enable a
-		uniform refinement.
-	"""
-	if shape == 1
-		num_pts = trunc(Int, 4*δ/α)
-		for n = 0 : num_pts
-			g = n/num_pts
-			# convex combination between p8 & p15 midpoint and p9 & p14 midpoint
-			px = g*(-sqrt(3)/2*d2)
-			py = g*(-d2/2+α/2) + (1-g)*(-d2+α/2)
-			point!(builder,px,py)
-			# convex combination between p15 & p12 midpoint and p14 & p13 midpoint
-			px = g*(-sqrt(3)/2*d2)
-			py = g*(-d2/2-α/2) + (1-g)*(-d2-α/2)
-			point!(builder,px,py)
-		end
-	elseif shape == 2
-		num_pts = trunc(Int, 4*δ/(sqrt(3)*α))
-		for n = 0 : num_pts
-			g = n/num_pts
-			## adding points along the horizontal interface
-			# convex combination between p10 & p16 midpoint and p11 & p15 midpoint
-			px = g*(α/2-d2)/2
-			py = -sqrt(3)/2*(d2-α/2)
-			point!(builder,px,py)
-			# convex combination between p16 & p19 midpoint and p15 & p20 midpoint
-			px = g*(-(d2+α/2)/2)
-			py = -sqrt(3)/2*(d2+α/2)
-			point!(builder,px,py)
-		end
-		num_pts = 2*num_pts
-		for n = 0 : num_pts-1
-			g = n/num_pts
-			## adding points along the left interface
-			# convex combination between p9 & p17 midpoint and p10 & p16 midpoint
-			px = g*(-d2+α/4) + (1-g)*(α/2-d2)/2
-			py = g*sqrt(3)/2*α/2 + (1-g)*(-sqrt(3)/2*(d2-α/2))
-			point!(builder,px,py)
-			# convex combination between p17 & p18 midpoint and p16 & p19 midpoint
-			px = g*(-d2) + (1-g)*(-(d2+α/2)/2)
-			py = g*(-sqrt(3)*α/2) + (1-g)*(-sqrt(3)/2*(d2+α/2))
-			point!(builder,px,py)
-		end
-	elseif shape == 3
-		num_pts = trunc(Int, 2*δ/α)
-		for n = 0 : num_pts-1
-			g = n/num_pts
-			# convex combination between p5 & p8 midpoint and p6 & p9 midpoint
-			px = (1-g)*(α/2-d2)/2
-			py = sqrt(3)/2*(d2-α/2)
-			point!(builder,px,py)
-			# convex combination between p8 & p11 midpoint and p9 & p12 midpoint
-			px = (1-g)*(-α/2-d2)/2
-			py = sqrt(3)/2*(d2+α/2)
-			point!(builder,px,py)
-		end
-		num_pts = 2*num_pts
-		for n = 0 : num_pts-1
-			g = n/num_pts
-			# convex combination between p6 & p9 midpoint and p7 & p10 midpoint
-			px = g*(α/2-d2)/2 + (1-g)*(-d2+α/2)
-			py = g*sqrt(3)/2*(d2-α/2)
-			point!(builder,px,py)
-			# convex combination between p9 & p12 midpoint and p10 & p13 midpoint
-			px = g*(-α/2-d2)/2 + (1-g)*(-d2-α/2)
-			py = g*sqrt(3)/2*(d2+α/2)
-			point!(builder,px,py)
-		end
-	end
+    """
+        Assign points along the middle of the each interface region to enable a
+        uniform refinement.
+    """
+    if shape == 1
+        num_pts = trunc(Int, 4*δ/α)
+        for n = 0 : num_pts
+            g = n/num_pts
+            # convex combination between p8 & p15 midpoint and p9 & p14 midpoint
+            px = g*(-sqrt(3)/2*d2)
+            py = g*(-d2/2+α/2) + (1-g)*(-d2+α/2)
+            point!(builder,px,py)
+            # convex combination between p15 & p12 midpoint and p14 & p13 midpoint
+            px = g*(-sqrt(3)/2*d2)
+            py = g*(-d2/2-α/2) + (1-g)*(-d2-α/2)
+            point!(builder,px,py)
+        end
+    elseif shape == 2
+        num_pts = trunc(Int, 4*δ/(sqrt(3)*α))
+        for n = 0 : num_pts
+            g = n/num_pts
+            ## adding points along the horizontal interface
+            # convex combination between p10 & p16 midpoint and p11 & p15 midpoint
+            px = g*(α/2-d2)/2
+            py = -sqrt(3)/2*(d2-α/2)
+            point!(builder,px,py)
+            # convex combination between p16 & p19 midpoint and p15 & p20 midpoint
+            px = g*(-(d2+α/2)/2)
+            py = -sqrt(3)/2*(d2+α/2)
+            point!(builder,px,py)
+        end
+        num_pts = 2*num_pts
+        for n = 0 : num_pts-1
+            g = n/num_pts
+            ## adding points along the left interface
+            # convex combination between p9 & p17 midpoint and p10 & p16 midpoint
+            px = g*(-d2+α/4) + (1-g)*(α/2-d2)/2
+            py = g*sqrt(3)/2*α/2 + (1-g)*(-sqrt(3)/2*(d2-α/2))
+            point!(builder,px,py)
+            # convex combination between p17 & p18 midpoint and p16 & p19 midpoint
+            px = g*(-d2) + (1-g)*(-(d2+α/2)/2)
+            py = g*(-sqrt(3)*α/2) + (1-g)*(-sqrt(3)/2*(d2+α/2))
+            point!(builder,px,py)
+        end
+    elseif shape == 3
+        num_pts = trunc(Int, d2/4) + 2
+        for n = 0 : num_pts
+            g = n/num_pts
+            # convex combination between p5 & p8 midpoint and p6 & p9 midpoint
+            px = (1-g)*(α/2-d2)/2
+            py = sqrt(3)/2*(d2-α/2)
+            point!(builder,px,py)
+            # convex combination between p8 & p11 midpoint and p9 & p12 midpoint
+            px = (1-g)*(-α/2-d2)/2
+            py = sqrt(3)/2*(d2+α/2)
+            point!(builder,px,py)
+        end
+        num_pts = 2*num_pts
+        for n = 0 : num_pts-1
+            g = n/num_pts
+            # convex combination between p6 & p9 midpoint and p7 & p10 midpoint
+            px = g*(α/2-d2)/2 + (1-g)*(-d2+α/2)
+            py = g*sqrt(3)/2*(d2-α/2)
+            point!(builder,px,py)
+            # convex combination between p9 & p12 midpoint and p10 & p13 midpoint
+            px = g*(-α/2-d2)/2 + (1-g)*(-d2-α/2)
+            py = g*sqrt(3)/2*(d2+α/2)
+            point!(builder,px,py)
+        end
+    end
 
 end
 
@@ -1553,7 +1553,7 @@ function assign_regions(p,builder,shape,refinement_width,nrefs,d1,d2,δ)
 
         A_core /= 2
         A_shell /= 2
-        A_stressor = 1/4 * (3*sqrt(3)/2*((d2+δ)^2 - d2^2))
+        A_stressor = 1/4 * (3*sqrt(3)/2*((d2+2/sqrt(3)*δ)^2 - d2^2))
 
         if refinement_width == nothing
             cellregion!(builder,2) # material 2 (shell)
@@ -1562,7 +1562,7 @@ function assign_regions(p,builder,shape,refinement_width,nrefs,d1,d2,δ)
 
             cellregion!(builder,3) # material 3 (stressor)
             maxvolume!(builder,A_stressor*vol_factor_stressor)
-            regionpoint!(builder,(-(d2+δ)/4,sqrt(3)/2*(2*d2+δ)/2))
+            regionpoint!(builder,(-(d2+2/sqrt(3)*δ)/4,sqrt(3)/2*d2+δ/2))
         else
             α = refinement_width
             A_interface_interior = 3/2 * (2*d2-α)*sqrt(3)/2*α
@@ -1589,7 +1589,7 @@ function assign_regions(p,builder,shape,refinement_width,nrefs,d1,d2,δ)
 
             cellregion!(builder,3) # material 3 (stressor)
             maxvolume!(builder,A_stressor*vol_factor_stressor)
-            regionpoint!(builder,(-(d2+δ)/4,sqrt(3)/2*(2*d2+δ+α)/2))
+            regionpoint!(builder,(-(d2+2/sqrt(3)*δ)/4,sqrt(3)/2*(2*d2+α)/2+δ/2))
         end
 
         cellregion!(builder,1) # material 1 (core)

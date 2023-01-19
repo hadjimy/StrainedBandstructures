@@ -20,7 +20,7 @@ using Pardiso
 @quickactivate "NanoWiresJulia" # <- project name
 # set parameters that should be included in filename
 #watson_accesses = ["mstruct", "geometry", "scenario", "shell_x", "stressor_x", "full_nonlin", "nrefs", "femorder", "femorder_P"]
-watson_accesses = ["geometry", "nrefs", "femorder", "stressor_x", "uniform_grid", "interface_refinement", "z_levels_dist", "cross_section"]
+watson_accesses = ["geometry", "nrefs", "femorder","mstruct", "stressor_x", "uniform_grid", "interface_refinement", "z_levels_dist", "cross_section"]
 watson_allowedtypes = (Real, String, Symbol, Array, DataType)
 watson_datasubdir = "nanowire"
 
@@ -28,33 +28,33 @@ watson_datasubdir = "nanowire"
 ## get default parameters
 function get_defaults()
     params = Dict(
-        "shell_x" => 0.3,                       # x value for x-dependent shell material
-        "stressor_x" => 0.5,                    # x value for x-dependent stressor material
-        "strainm" => NonlinearStrain3D,         # strain model
-        "full_nonlin" => true,                  # use complicated model (ignored if linear strain is used)
-        "use_emb" => true,                      # use embedding (true) or damping (false) solver ?
-        "nsteps" => 4,                          # number of embedding steps in embedding solver
-        "maxits" => 10,                         # max number of iteration in each embedding step
-        "tres" => 1e-12,                        # target residual in each embedding step
-        "geometry" => [30, 20, 15, 2000],       # dimensions of nanowire
-        "scenario" => 1,                        # scenario number that fixes materials for core/shell/stressor
-        "mb" => 0.5,                            # share of material A vs. material B
-        "mstruct" => ZincBlende001,             # material structure type
-        "femorder" => 1,                        # order of the finite element discretisation (displacement)
-        "use_lowlevel_solver" => true,          # use new implementation based on low level structures (should be faster)
-        "femorder_P" => 1,                      # order of the finite element discretisation (polarisation)
-        "nrefs" => 0,                           # number of uniform refinements before solve
-        "avgc" => 2,                            # lattice number calculation method (average case)
-        "polarisation" => true,                 # also solve for polarisation
-        "fully_coupled" => false,               # parameter for later when we have the full model
-        "postprocess" => false,                 # angle calculation, vtk files, cuts
-        "linsolver" => ExtendableSparse.MKLPardisoLU, # linear solver (try ExtendableSparse.MKLPardisoLU or ExtendableSparse.LUFactorization)
-        "uniform_grid" => true,                 # uniform grid in z direction or nonuniform grid with local refinement at cut levels
-        "interface_refinement" => false,        # enables a finer grid at material interface for each cross-section
-        "z_levels_dist" => 100,                 # distance between z-levels is z_levels_dist * 2^(-nrefs)
-        "cut_levels_pos" => [0.5],              # position of cut-levels w.r.t. nanowire length. i.e., cut_levels = cut_levels_pos * geometry[4]
-        "cross_section" => 1,                    # geometry of stressor; either version 1 or 2
-        "corner_refinement" => false            # assigning more nodes at interface corners
+        "shell_x" => 0.3,                               # x value for x-dependent shell material
+        "stressor_x" => 0.5,                            # x value for x-dependent stressor material
+        "strainm" => NonlinearStrain3D,                 # strain model
+        "full_nonlin" => true,                          # use complicated model (ignored if linear strain is used)
+        "use_emb" => true,                              # use embedding (true) or damping (false) solver ?
+        "nsteps" => 5,                                  # number of embedding steps in embedding solver
+        "maxits" => 10,                                 # max number of iteration in each embedding step
+        "tres" => 1e-12,                                # target residual in each embedding step
+        "geometry" => [30, 20, 15, 2000],               # dimensions of nanowire
+        "scenario" => 1,                                # scenario number that fixes materials for core/shell/stressor
+        "mb" => 0.5,                                    # share of material A vs. material B
+        "mstruct" => ZincBlende001,                     # material structure type
+        "femorder" => 1,                                # order of the finite element discretisation (displacement)
+        "use_lowlevel_solver" => true,                  # use new implementation based on low level structures (should be faster)
+        "femorder_P" => 1,                              # order of the finite element discretisation (polarisation)
+        "nrefs" => 0,                                   # number of uniform refinements before solve
+        "avgc" => 2,                                    # lattice number calculation method (average case)
+        "polarisation" => true,                         # also solve for polarisation
+        "fully_coupled" => false,                       # parameter for later when we have the full model
+        "postprocess" => false,                         # angle calculation, vtk files, cuts
+        "linsolver" => ExtendableSparse.MKLPardisoLU,   # linear solver (try ExtendableSparse.MKLPardisoLU or ExtendableSparse.LUFactorization)
+        "uniform_grid" => true,                         # uniform grid in z direction or nonuniform grid with local refinement at cut levels
+        "interface_refinement" => false,                # enables a finer grid at material interface for each cross-section
+        "z_levels_dist" => 100,                         # distance between z-levels is z_levels_dist * 2^(-nrefs)
+        "cut_levels_pos" => [0.5],                      # position of cut-levels w.r.t. nanowire length. i.e., cut_levels = cut_levels_pos * geometry[4]
+        "cross_section" => 1,                           # geometry of stressor; either version 1,2 or 3
+        "corner_refinement" => false                    # assigning more nodes at interface corners
     )
     return params
 end
@@ -69,11 +69,13 @@ end
 
 function get_scenario(scenario, shell_x, stressor_x, materialstructuretype)
     if scenario == 1
-        materials = [GaAs,GaAs,AlInAs{stressor_x}] # scenario 1
+        materials = [GaAs,GaAs,AlInAs{stressor_x}]              # scenario 1
     elseif scenario == 2
-        materials = [GaAs,AlInAs{shell_x},AlInAs{stressor_x}] # scenario 2
+        materials = [GaAs,AlInAs{shell_x},AlInAs{stressor_x}]   # scenario 2
     elseif scenario == 3
-        materials = [GaAs,GaAs,AlGaAs{stressor_x}] # scenario 3
+        materials = [GaAs,GaAs,AlGaAs{stressor_x}]              # scenario 3
+    elseif scenario == 4
+        materials = [GaAs,GaAs,InGaAs{stressor_x}]              # scenario 4
     else
         @error "scenario not defined"
     end
@@ -157,8 +159,12 @@ function main(d = nothing; verbosity = 0, Plotter = nothing, force::Bool = false
 
         end
         if d["interface_refinement"] == true
-            refinement_width = 1/4*geometry[3]
-            manual_refinement = true
+            if d["cross_section"] == 3
+                refinement_width = 1/4*geometry[2]/sqrt(3)
+            else
+               refinement_width = 1/4*geometry[3]
+            end
+           manual_refinement = true
         else
             refinement_width = nothing
             manual_refinement = false
@@ -268,6 +274,35 @@ function main(d = nothing; verbosity = 0, Plotter = nothing, force::Bool = false
                             maxiterations = [maxits])
         end
     end
+
+    # ## rotate back (in case of ZincBlende111)
+    # if mstruct <: ZincBlende111
+
+    #     FES = Solution[1].FES
+    #     ndofs4component = FES.coffset
+    #     E = Solution.entries
+    #     a = zeros(Float64,3)
+    #     for dof = 1 : ndofs4component
+    #         a[1] = E[dof]
+    #         a[2] = E[dof+ndofs4component]
+    #         a[3] = E[dof+2*ndofs4component]
+    #         # multiply with inverse of rotation matrix
+    #         # U = [ 1/sqrt(6) 1/sqrt(6) -sqrt(2/3)
+    #         #      -1/sqrt(2) 1/sqrt(2)          0
+    #         #       1/sqrt(3) 1/sqrt(3)  1/sqrt(3)]
+    #         #
+    #         # invU = [ 1/sqrt(6) -1/sqrt(2) 1/sqrt(3)
+    #         #          1/sqrt(6)  1/sqrt(2) 1/sqrt(3)
+    #         #         -sqrt(2/3)          0 1/sqrt(3)]
+    #         E[dof]                   =  1/sqrt(6)*a[1] - 1/sqrt(2)*a[2] + 1/sqrt(3)*a[3]
+    #         E[dof+ndofs4component]   =  1/sqrt(6)*a[1] + 1/sqrt(2)*a[2] + 1/sqrt(3)*a[3]
+    #         E[dof+2*ndofs4component] = -sqrt(2/3)*a[1] + 1/sqrt(3)*a[3]
+
+    #         E[dof]                   =  1/sqrt(6)*a[1] - 1/sqrt(6)*a[2] - sqrt(2/3)*a[3]
+    #         E[dof+ndofs4component]   = -1/sqrt(2)*a[1] + 1/sqrt(2)*a[2]
+    #         E[dof+2*ndofs4component] =  1/sqrt(3)*a[1] + 1/sqrt(3)*a[2] + 1/sqrt(3)*a[3]
+    #     end
+    # end
 
     ## add computed data to dict
     resultd = deepcopy(d)

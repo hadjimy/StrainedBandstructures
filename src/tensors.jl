@@ -34,7 +34,7 @@ end
         result[offset + k] = 0
         for j = 1 : size(C,2)
             if C[k,j] != 0
-                result[offset+k] += C[k,j] * input[j]
+                result[offset + k] += C[k,j] * input[j]
             end
         end
     end

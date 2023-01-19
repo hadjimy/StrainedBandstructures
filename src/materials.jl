@@ -3,10 +3,12 @@ abstract type TestMaterial{x} <: MaterialType where {x <: Float64} end
 abstract type GaAs <: MaterialType end
 abstract type AlInAs{x} <: MaterialType where {x <: Float64} end
 abstract type AlGaAs{x} <: MaterialType where {x <: Float64} end
+abstract type InGaAs{x} <: MaterialType where {x <: Float64} end
 Base.String(T::Type{<:TestMaterial}) = "Test($(T.parameters[1])))"
 Base.String(::Type{GaAs}) = "GaAs"
-Base.String(T::Type{<:AlInAs}) = "Ai_$(T.parameters[1])In_$(1 - T.parameters[1])As"
-Base.String(T::Type{<:AlGaAs}) = "Ai_$(T.parameters[1])Ga_$(1 - T.parameters[1])As"
+Base.String(T::Type{<:AlInAs}) = "Al_$(T.parameters[1])In_$(1 - T.parameters[1])As"
+Base.String(T::Type{<:AlGaAs}) = "Al_$(T.parameters[1])Ga_$(1 - T.parameters[1])As"
+Base.String(T::Type{<:InGaAs}) = "In_$(T.parameters[1])Ga_$(1 - T.parameters[1])As"
 
 struct MaterialDataset{T, MT <: MaterialType}
     ElasticConstants::Dict
@@ -65,9 +67,9 @@ function MaterialDataset(MT::Type{GaAs})
     # Phys. Rev. B 95, 245309 (2017)
     # wurtzite
     ElasticConstants = Dict()
-    ElasticConstants["C11"] = 1188 # GPa
-    ElasticConstants["C12"] =  538 # GPa
-    ElasticConstants["C44"] =  594 # GPa
+    ElasticConstants["C11"] = 118.8 # GPa
+    ElasticConstants["C12"] =  53.8 # GPa
+    ElasticConstants["C44"] =  59.4 # GPa
 
     # piezoelectric constants
     # zinc blende
@@ -93,9 +95,9 @@ end
 function MaterialDataset(MT::Type{AlInAs{x}}) where {x}
     # elastic constants
     ElasticConstants = Dict()
-    ElasticConstants["C11"] = x*1250 + (1-x)*832.9   # GPa
-    ElasticConstants["C12"] = x*534  + (1-x)*452.6   # GPa
-    ElasticConstants["C44"] = x*542  + (1-x)*395.9   # GPa
+    ElasticConstants["C11"] = x*125.0 + (1-x)*83.29   # GPa
+    ElasticConstants["C12"] = x*53.4  + (1-x)*45.26   # GPa
+    ElasticConstants["C44"] = x*54.2  + (1-x)*39.59   # GPa
 
     # piezoelectric constants
     PiezoElectricConstants = Dict()
@@ -119,9 +121,9 @@ end
 function MaterialDataset(MT::Type{AlGaAs{x}}) where {x}
     # elastic constants
     ElasticConstants = Dict()
-    ElasticConstants["C11"] = x*1250 + (1-x)*1188    # GPa
-    ElasticConstants["C12"] = x*534  + (1-x)*538     # GPa
-    ElasticConstants["C44"] = x*542  + (1-x)*594     # GPa
+    ElasticConstants["C11"] = x*125.0 + (1-x)*118.8    # GPa
+    ElasticConstants["C12"] = x*53.4  + (1-x)*53.8     # GPa
+    ElasticConstants["C44"] = x*54.2  + (1-x)*59.4     # GPa
 
     # piezoelectric constants (take from GaAs / AlAs data above)
     PiezoElectricConstants = Dict()
@@ -139,6 +141,32 @@ function MaterialDataset(MT::Type{AlGaAs{x}}) where {x}
     # relative dielectric constant 
     kappar = 12.605 # NEED TO CORRECT FROM LITERATURE
     
+    return MaterialDataset{Float64, MT}(ElasticConstants, PiezoElectricConstants, lc, Psp, kappar)
+end
+
+function MaterialDataset(MT::Type{InGaAs{x}}) where {x}
+    # elastic constants
+    ElasticConstants = Dict()
+    ElasticConstants["C11"] = x*83.29 + (1-x)*118.8    # GPa
+    ElasticConstants["C12"] = x*45.26 + (1-x)*53.8     # GPa
+    ElasticConstants["C44"] = x*39.59 + (1-x)*59.4     # GPa
+
+    # piezoelectric constants (take from GaAs / InAs data above)
+    PiezoElectricConstants = Dict()
+    PiezoElectricConstants["E31wz"] = x*(0.1)    + (1-x)*(0.1328)
+    PiezoElectricConstants["E33wz"] = x*(-0.03)  + (1-x)*(-0.2656)
+    PiezoElectricConstants["E15wz"] = x*(0.1)    + (1-x)*(-0.2656 / 6.4825 * 3.9697)
+    PiezoElectricConstants["E14zb"] = x*(-0.115) + (1-x)*(-0.2656 / 6.4825 * 3.9697)
+
+    # lattice constants
+    lc = (x*6.0553 + (1-x)*5.65325) * ones(Float64,3)
+
+    # C/m2 spontaneous polarization
+    Psp = zeros(Float64,3)
+
+    # relative dielectric constant
+    kappar = 12.605 # NEED TO CORRECT FROM LITERATURE
+
     return MaterialDataset{Float64, MT}(ElasticConstants, PiezoElectricConstants, lc, Psp, kappar)
 end
 
@@ -204,9 +232,9 @@ function set_data(materials::Array{DataType,1}, MST::Type{<:MaterialStructureTyp
             C44 = data[m].ElasticConstants["C44"]
             sr2 = sqrt(2)
             C11p = (1/2)*(C11 + C12) + C44
-            C12p = (1/6)*(C11 + 5*C12) - (1/3) * C44
-            C44p = (1/3)*(C11 + C12) + (1/3) * C44
-            C33p = (3/2)*C11p - (1/2)*C12p -C44p
+            C12p = (1/6)*(C11 + 5*C12) - (1/3)*C44
+            C44p = (1/3)*(C11 - C12 + C44)
+            C33p = (3/2)*C11p - (1/2)*C12p - C44p
             C13p = -(1/2)*C11p + (3/2)*C12p + C44p
             C15p = (1/sr2)*C11p - (1/sr2)*C12p - sr2*C44p
             C66p = (1/2)*(C11p - C12p)

@@ -48,7 +48,7 @@ export apply_elasticity_tensor!, apply_piezoelectricity_tensor!
 
 include("materials.jl")
 export MaterialType
-export TestMaterial, GaAs, AlInAs, AlGaAs
+export TestMaterial, GaAs, AlInAs, AlGaAs, InGaAs
 export MaterialDataset
 export get_materialtype
 export MaterialData
