@@ -423,14 +423,35 @@ end
     return nothing
 end
 @inline function add_gradu_x_stress3D!(result, input; offset = 0, factor = 1)
-    result[1] += factor * (input[offset+1]*input[1] + input[offset+6]*input[2] + input[offset+5]*input[3])
-    result[2] += factor * (input[offset+6]*input[1] + input[offset+2]*input[2] + input[offset+4]*input[3])
-    result[3] += factor * (input[offset+5]*input[1] + input[offset+4]*input[2] + input[offset+3]*input[3])
-    result[4] += factor * (input[offset+1]*input[4] + input[offset+6]*input[5] * input[offset+5]*input[6])
-    result[5] += factor * (input[offset+6]*input[4] + input[offset+2]*input[5] * input[offset+4]*input[6])
-    result[6] += factor * (input[offset+5]*input[4] + input[offset+4]*input[5] * input[offset+3]*input[6])
-    result[7] += factor * (input[offset+1]*input[7] + input[offset+6]*input[8] * input[offset+5]*input[9])
-    result[8] += factor * (input[offset+6]*input[7] + input[offset+2]*input[8] * input[offset+4]*input[9])
-    result[9] += factor * (input[offset+5]*input[7] + input[offset+4]*input[8] * input[offset+3]*input[9])
+    F = [1+input[1] input[2] input[3]
+        input[4] 1+input[5] input[6]
+        input[7] input[8] 1+input[9]]
+
+    S = [result[1] result[2] result[3]
+        result[4] result[5] result[6]
+        result[7] result[6] result[9]]
+
+    # F = zeros(Float64, 3, 3)
+    # for i = 1 : 3, j = 1 : 3
+    #     F[i,j] = input[3*(i-1)+j]
+    # end
+    # for i = 1 : 3
+    #     F[i,i] += 1
+    # end
+
+    R = F*S
+    for i = 1 : 3, j = 1 : 3
+        result[3*(i-1)+j] = R[i,j]
+    end
+
+    # result[1] += factor * (input[offset+1]*input[1] + input[offset+6]*input[2] + input[offset+5]*input[3])
+    # result[2] += factor * (input[offset+6]*input[1] + input[offset+2]*input[2] + input[offset+4]*input[3])
+    # result[3] += factor * (input[offset+5]*input[1] + input[offset+4]*input[2] + input[offset+3]*input[3])
+    # result[4] += factor * (input[offset+1]*input[4] + input[offset+6]*input[5] * input[offset+5]*input[6])
+    # result[5] += factor * (input[offset+6]*input[4] + input[offset+2]*input[5] * input[offset+4]*input[6])
+    # result[6] += factor * (input[offset+5]*input[4] + input[offset+4]*input[5] * input[offset+3]*input[6])
+    # result[7] += factor * (input[offset+1]*input[7] + input[offset+6]*input[8] * input[offset+5]*input[9])
+    # result[8] += factor * (input[offset+6]*input[7] + input[offset+2]*input[8] * input[offset+4]*input[9])
+    # result[9] += factor * (input[offset+5]*input[7] + input[offset+4]*input[8] * input[offset+3]*input[9])
     return nothing
 end
