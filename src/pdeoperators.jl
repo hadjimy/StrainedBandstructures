@@ -423,9 +423,9 @@ end
     return nothing
 end
 @inline function add_gradu_x_stress3D!(result, input; offset = 0, factor = 1)
-    F = [1+input[1] input[2] input[3]
-        input[4] 1+input[5] input[6]
-        input[7] input[8] 1+input[9]]
+    F = [1+factor*input[1] factor*input[2] factor*input[3]
+        factor*input[4] 1+factor*input[5] factor*input[6]
+        factor*input[7] factor*input[8] 1+factor*input[9]]
 
     S = [result[1] result[2] result[3]
         result[4] result[5] result[6]
