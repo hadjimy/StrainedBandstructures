@@ -429,7 +429,7 @@ end
 
     S = [result[1] result[2] result[3]
         result[4] result[5] result[6]
-        result[7] result[6] result[9]]
+        result[7] result[8] result[9]]
 
     # F = zeros(Float64, 3, 3)
     # for i = 1 : 3, j = 1 : 3
