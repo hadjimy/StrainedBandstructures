@@ -20,7 +20,7 @@ using Pardiso
 @quickactivate "NanoWiresJulia" # <- project name
 # set parameters that should be included in filename
 #watson_accesses = ["mstruct", "geometry", "scenario", "shell_x", "stressor_x", "full_nonlin", "nrefs", "femorder", "femorder_P"]
-watson_accesses = ["geometry", "nrefs", "femorder", "mstruct", "full_nonlin", "stressor_x", "uniform_grid", "interface_refinement", "z_levels_dist", "cross_section"]
+watson_accesses = ["geometry", "nrefs", "femorder", "mstruct", "stressor_x", "uniform_grid", "interface_refinement", "cross_section"]
 watson_allowedtypes = (Real, String, Symbol, Array, DataType)
 watson_datasubdir = "nanowire"
 
