@@ -10,7 +10,7 @@ Base.String(T::Type{<:AlInAs}) = "Al_$(T.parameters[1])In_$(1 - T.parameters[1])
 Base.String(T::Type{<:AlGaAs}) = "Al_$(T.parameters[1])Ga_$(1 - T.parameters[1])As"
 Base.String(T::Type{<:InGaAs}) = "In_$(T.parameters[1])Ga_$(1 - T.parameters[1])As"
 
-struct MaterialDataset{T, MT <: MaterialType}
+struct MaterialDataset{T, MT <: MaterialType, MST <: MaterialStructureType}
     ElasticConstants::Dict
     PiezoElectricConstants::Dict
     LatticeConstants::Array{T,1}
@@ -19,7 +19,7 @@ struct MaterialDataset{T, MT <: MaterialType}
 end
 
 # constructor for isotropic tensor from material data
-function IsotropicElasticityTensor(MD::MaterialDataset{T, MT}) where {T,MT}
+function IsotropicElasticityTensor(MD::MaterialDataset{T, MT, MST}) where {T,MT,MST}
     # compute Lamé constants in N/(m)^2
     if haskey(d, "λ") && haskey(d, "μ")
         λ = MD("λ")
@@ -33,7 +33,12 @@ function IsotropicElasticityTensor(MD::MaterialDataset{T, MT}) where {T,MT}
     return IsotropicElasticityTensor{3,T}(λ, μ)
 end
 
-get_materialtype(::MaterialDataset{T,MT}) where {T,MT} = MT
+function get_kappar(mds::MaterialDataset)
+    MT=get_materialtype(mds)
+    return MT(mds.kappar)
+end
+
+get_materialtype(::MaterialDataset{T,MT,MST}) where {T,MT,MST} = MT
 
 
 function MaterialDataset(MT::Type{TestMaterial{x}}) where {x}
@@ -61,15 +66,15 @@ function MaterialDataset(MT::Type{TestMaterial{x}}) where {x}
     return MaterialDataset{Float64, MT}(ElasticConstants, PiezoElectricConstants, lc, Psp, kappar)
 end
 
-function MaterialDataset(MT::Type{GaAs})
+function MaterialDataset(MT::Type{GaAs}, MST::Type{<:MaterialStructureType})
 
     # elastic constants
     # Phys. Rev. B 95, 245309 (2017)
     # wurtzite
-    ElasticConstants = Dict()
-    ElasticConstants["C11"] = 118.8 # GPa
-    ElasticConstants["C12"] =  53.8 # GPa
-    ElasticConstants["C44"] =  59.4 # GPa
+    ElasticConstants = Dict() # from Vurgaftman, see also SPHInX GaAs.sx file
+    ElasticConstants["C11"] = 122.1 # GPa (118.8)
+    ElasticConstants["C12"] =  56.6 # GPa (53.8)
+    ElasticConstants["C44"] =  60.0 # GPa (59.4)
 
     # piezoelectric constants
     # zinc blende
@@ -77,27 +82,32 @@ function MaterialDataset(MT::Type{GaAs})
     PiezoElectricConstants["E31wz"] =  0.1328
     PiezoElectricConstants["E33wz"] = -0.2656
     PiezoElectricConstants["E15wz"] = -0.2656 / 6.4825 * 3.9697       # Michele Catti  ASCS2006, Spokane
-    PiezoElectricConstants["E14zb"] = PiezoElectricConstants["E15wz"]  # Michele Catti  ASCS2006, Spokane
+    PiezoElectricConstants["E14zb"] = PiezoElectricConstants["E15wz"] # Michele Catti  ASCS2006, Spokane
 
     # lattice constants
-    lc = 5.65325 * ones(Float64,3)
-    #lc = [3.9676, 5.65325, 6.4825]
+    if MST <: ZincBlende001
+        lc = 5.6532 * ones(Float64,3) # 5.750 from https://materialsproject.org/materials/mp-2534?formula=GaAs (space group: F4¯3m)
+    elseif MST <: ZincBlende111_C14 || MST <: ZincBlende111_C15 || MST <: ZincBlende111_C14_C15
+        lc = [5.6532/sqrt(2), 5.6532/sqrt(2), 5.6532/sqrt(3/4)] # From GaAs.sx file in SPHInX
+    elseif  MST <: Wurtzite0001
+        lc = [3.994, 3.994, 6.586] # from https://materialsproject.org/materials/mp-8883?formula=GaAs (space group: P6₃mc)
+    end
 
     # C/m2 spontaneous polarization
     Psp = zeros(Float64,3)
 
     # relative dielectric constant
-    kappar = 13.18
+    kappar = 12.9 # http://www.ioffe.ru/SVA/NSM/Semicond/GaAs/basic.html
 
-    return MaterialDataset{Float64, MT}(ElasticConstants, PiezoElectricConstants, lc, Psp, kappar)
+    return MaterialDataset{Float64, MT, MST}(ElasticConstants, PiezoElectricConstants, lc, Psp, kappar)
 end
 
-function MaterialDataset(MT::Type{AlInAs{x}}) where {x}
+function MaterialDataset(MT::Type{AlInAs{x}}, MST::Type{<:MaterialStructureType}) where {x}
     # elastic constants
-    ElasticConstants = Dict()
-    ElasticConstants["C11"] = x*125.0 + (1-x)*83.29   # GPa
-    ElasticConstants["C12"] = x*53.4  + (1-x)*45.26   # GPa
-    ElasticConstants["C44"] = x*54.2  + (1-x)*39.59   # GPa
+    ElasticConstants = Dict() # from Vurgaftman, see also SPHInX AlInAs.sx file
+    ElasticConstants["C11"] = x*125.0 + (1-x)*83.29 # GPa
+    ElasticConstants["C12"] = x*53.4  + (1-x)*45.26 # GPa
+    ElasticConstants["C44"] = x*54.2  + (1-x)*39.59 # GPa
 
     # piezoelectric constants
     PiezoElectricConstants = Dict()
@@ -107,67 +117,85 @@ function MaterialDataset(MT::Type{AlInAs{x}}) where {x}
     PiezoElectricConstants["E14zb"] = x*(-0.048) + (1-x)*(-0.115)       # Phys. Rev. B 84, 195207 (2011)
 
     # lattice constants
-    lc = (x*5.6605 + (1-x)*6.0553) * ones(Float64,3)
+    if MST <: ZincBlende001
+        lc = (x*5.6611 + (1-x)*6.0583) * ones(Float64,3) # x*5.676 + (1-x)*6.107 from https://materialsproject.org/materials/mp-2172?formula=AlAs and https://materialsproject.org/materials/mp-20305?formula=InAs (space groups: F4¯3m)
+    elseif MST <: ZincBlende111_C14 || MST <: ZincBlende111_C15 || MST <: ZincBlende111_C14_C15
+        lc = [(x*5.6611 + (1-x)*6.0583)/sqrt(2), (x*5.6611 + (1-x)*6.0583)/sqrt(2), (x*5.6611 + (1-x)*6.0583)/sqrt(3/4)] # From AlInAs.sx file in SPHInX
+    elseif  MST <: Wurtzite0001
+        lc = [(x*4.002 + (1-x)*4.311), (x*4.002 + (1-x)*4.311), (x*6.582 + (1-x)*7.093)] # from https://materialsproject.org/materials/mp-8881?formula=AlAs and https://materialsproject.org/materials/mp-1007652?formula=InAs (space group: P6₃mc)
+    end
 
     # C/m2 spontaneous polarization
     Psp = zeros(Float64,3)
 
     # relative dielectric constant
-    kappar = 12.605
+    kappar = x*10.06  + (1-x)*15.15 # from https://www.ioffe.ru/SVA/NSM/Semicond/AlGaAs/basic.html and https://www.ioffe.ru/SVA/NSM/Semicond/InAs/basic.html
 
-    return MaterialDataset{Float64, MT}(ElasticConstants, PiezoElectricConstants, lc, Psp, kappar)
+    return MaterialDataset{Float64, MT, MST}(ElasticConstants, PiezoElectricConstants, lc, Psp, kappar)
 end
 
-function MaterialDataset(MT::Type{AlGaAs{x}}) where {x}
-    # elastic constants
+function MaterialDataset(MT::Type{AlGaAs{x}}, MST::Type{<:MaterialStructureType}) where {x}
+    # elastic constants (taken from GaAs / AlAs data above)
     ElasticConstants = Dict()
-    ElasticConstants["C11"] = x*125.0 + (1-x)*118.8    # GPa
-    ElasticConstants["C12"] = x*53.4  + (1-x)*53.8     # GPa
-    ElasticConstants["C44"] = x*54.2  + (1-x)*59.4     # GPa
+    ElasticConstants["C11"] = x*125.0 + (1-x)*122.1 # GPa
+    ElasticConstants["C12"] = x*53.4  + (1-x)*56.6  # GPa
+    ElasticConstants["C44"] = x*54.2  + (1-x)*60.0  # GPa
 
-    # piezoelectric constants (take from GaAs / AlAs data above)
+    # piezoelectric constants (taken from GaAs / AlAs data above)
     PiezoElectricConstants = Dict()
     PiezoElectricConstants["E31wz"] = x*(0.1)    + (1-x)*(0.1328)
     PiezoElectricConstants["E33wz"] = x*(-0.01)  + (1-x)*(-0.2656)
     PiezoElectricConstants["E15wz"] = x*(0.1)    + (1-x)*(-0.2656 / 6.4825 * 3.9697)
     PiezoElectricConstants["E14zb"] = x*(-0.048) + (1-x)*(-0.2656 / 6.4825 * 3.9697)
 
-    # lattice constants
-    lc = (x*5.6605 + (1-x)*5.65325) * ones(Float64,3)
+    # lattice constants (taken from GaAs / AlAs data above)
+    if MST <: ZincBlende001
+        lc = (x*5.6611 + (1-x)*5.6532) * ones(Float64,3)
+    elseif MST <: ZincBlende111_C14 || MST <: ZincBlende111_C15 || MST <: ZincBlende111_C14_C15
+        lc = [(x*5.6611 + (1-x)*5.6532)/sqrt(2), (x*5.6611 + (1-x)*5.6532)/sqrt(2), (x*5.6611 + (1-x)*5.6532)/sqrt(3/4)]
+    elseif  MST <: Wurtzite0001
+        lc = [(x*4.002 + (1-x)*3.994), (x*4.002 + (1-x)*3.994), (x*6.582 + (1-x)*6.586)]
+    end
     
     # C/m2 spontaneous polarization
     Psp = zeros(Float64,3)
 
-    # relative dielectric constant 
-    kappar = 12.605 # NEED TO CORRECT FROM LITERATURE
-    
-    return MaterialDataset{Float64, MT}(ElasticConstants, PiezoElectricConstants, lc, Psp, kappar)
+    # relative dielectric constant (taken from GaAs / AlAs data above)
+    kappar = x*10.06  + (1-x)*12.9
+
+    return MaterialDataset{Float64, MT, MST}(ElasticConstants, PiezoElectricConstants, lc, Psp, kappar)
 end
 
-function MaterialDataset(MT::Type{InGaAs{x}}) where {x}
-    # elastic constants
+function MaterialDataset(MT::Type{InGaAs{x}}, MST::Type{<:MaterialStructureType}) where {x}
+    # elastic constants (taken from InAs / GaAs data above)
     ElasticConstants = Dict()
-    ElasticConstants["C11"] = x*83.29 + (1-x)*118.8    # GPa
-    ElasticConstants["C12"] = x*45.26 + (1-x)*53.8     # GPa
-    ElasticConstants["C44"] = x*39.59 + (1-x)*59.4     # GPa
+    ElasticConstants["C11"] = x*83.29 + (1-x)*122.1 # GPa
+    ElasticConstants["C12"] = x*45.26 + (1-x)*56.6  # GPa
+    ElasticConstants["C44"] = x*39.59 + (1-x)*60.0  # GPa
 
-    # piezoelectric constants (take from GaAs / InAs data above)
+    # piezoelectric constants (taken from InAs / GaAs data above)
     PiezoElectricConstants = Dict()
     PiezoElectricConstants["E31wz"] = x*(0.1)    + (1-x)*(0.1328)
     PiezoElectricConstants["E33wz"] = x*(-0.03)  + (1-x)*(-0.2656)
     PiezoElectricConstants["E15wz"] = x*(0.1)    + (1-x)*(-0.2656 / 6.4825 * 3.9697)
     PiezoElectricConstants["E14zb"] = x*(-0.115) + (1-x)*(-0.2656 / 6.4825 * 3.9697)
 
-    # lattice constants
-    lc = (x*6.0553 + (1-x)*5.65325) * ones(Float64,3)
+    # lattice constants (taken from InAs / GaAs data above)
+    if MST <: ZincBlende001
+        lc = (x*6.0583 + (1-x)*5.6532) * ones(Float64,3)
+    elseif MST <: ZincBlende111_C14 || MST <: ZincBlende111_C15 || MST <: ZincBlende111_C14_C15
+        lc = [(x*6.0583 + (1-x)*5.6532)/sqrt(2), (x*6.0583 + (1-x)*5.6532)/sqrt(2), (x*6.0583 + (1-x)*5.6532)/sqrt(3/4)]
+    elseif  MST <: Wurtzite0001
+        lc = [(x*4.311 + (1-x)*3.994), (x*4.311 + (1-x)*3.994), (x*7.093 + (1-x)*6.586)]
+    end
 
     # C/m2 spontaneous polarization
     Psp = zeros(Float64,3)
 
-    # relative dielectric constant
-    kappar = 12.605 # NEED TO CORRECT FROM LITERATURE
+    # relative dielectric constant (taken from InAs / GaAs data above)
+    kappar = x*15.15  + (1-x)*12.9
 
-    return MaterialDataset{Float64, MT}(ElasticConstants, PiezoElectricConstants, lc, Psp, kappar)
+    return MaterialDataset{Float64, MT, MST}(ElasticConstants, PiezoElectricConstants, lc, Psp, kappar)
 end
 
 
@@ -187,17 +215,17 @@ function set_data(materials::Array{DataType,1}, MST::Type{<:MaterialStructureTyp
     for m = 1 : length(materials)
 
         ## get material data set
-        data[m] = MaterialDataset(materials[m])
+        data[m] = MaterialDataset(materials[m], MST)
 
         ## setup tensors
         if MST <: ZincBlende001
-            # stiffness tensor in N/(nm)^2 # todo: move scaling to solver
-            # Equation (4)
-            # in "Symmetry-adapted calculations of strain and polarization fields in (111)-oriented 
-            # zinc-blende quantum dots" by Schulz et. al
             C11 = data[m].ElasticConstants["C11"]
             C12 = data[m].ElasticConstants["C12"]
             C44 = data[m].ElasticConstants["C44"]
+
+            # stiffness tensor in N/(nm)^2 # todo: move scaling to solver
+            # Equation (4)
+            # in "Symmetry-adapted calculations of strain and polarization fields in (111)-oriented zinc-blende quantum dots" by Schulz et. al
             C[m] = CustomMatrixElasticityTensor(
               1e-9*[ C11 C12 C12   0   0   0
                      C12 C11 C12   0   0   0
@@ -205,7 +233,8 @@ function set_data(materials::Array{DataType,1}, MST::Type{<:MaterialStructureTyp
                        0   0   0 C44   0   0
                        0   0   0   0 C44   0
                        0   0   0   0   0 C44 ])
-            # piezoelectric tensor in C/(m^2)
+
+                       # piezoelectric tensor in C/(m^2)
             # Equation (22)
             E14zb = data[m].PiezoElectricConstants["E14zb"]
             E[m] = CustomMatrixPiezoElectricityTensor(
@@ -213,20 +242,22 @@ function set_data(materials::Array{DataType,1}, MST::Type{<:MaterialStructureTyp
                    0 0 0     0 E14zb     0
                    0 0 0     0     0 E14zb])
         elseif MST <: ZincBlende2D
-            # stiffness tensor in N/(nm)^2
             C11 = data[m].ElasticConstants["C11"]
             C12 = data[m].ElasticConstants["C12"]
             C44 = data[m].ElasticConstants["C44"]
+
+            # stiffness tensor in N/(nm)^2
             C[m] = CustomMatrixElasticityTensor(
                    1e-9*[ C11 C12   0
                           C12 C11   0
                             0   0 C44 ])
+
             # piezoelectric tensor in C/(m^2)
             E14zb = data[m].PiezoElectricConstants["E14zb"]
             E[m] = CustomMatrixPiezoElectricityTensor(
                 [E14zb     0 0 0 0 0
                      0 E14zb 0 0 0 0])
-        elseif MST <: ZincBlende111
+        elseif MST <: ZincBlende111_C14 || MST <: ZincBlende111_C15 || MST <: ZincBlende111_C14_C15
             C11 = data[m].ElasticConstants["C11"]
             C12 = data[m].ElasticConstants["C12"]
             C44 = data[m].ElasticConstants["C44"]
@@ -236,22 +267,40 @@ function set_data(materials::Array{DataType,1}, MST::Type{<:MaterialStructureTyp
             C44p = (1/3)*(C11 - C12 + C44)
             C33p = (3/2)*C11p - (1/2)*C12p - C44p
             C13p = -(1/2)*C11p + (3/2)*C12p + C44p
+            C14p = sr2/6*(-C11 + C12 + 2*C44)
             C15p = (1/sr2)*C11p - (1/sr2)*C12p - sr2*C44p
             C66p = (1/2)*(C11p - C12p)
 
             # stiffness tensor in N/(nm)^2
             # Equation (14)
-            C[m] = CustomMatrixElasticityTensor(
-              1e-9*[ C11p  C12p C13p     0  C15p     0
-                     C12p  C11p C13p     0 -C15p     0
-                     C13p  C13p C33p     0     0     0
-                        0     0    0  C44p     0 -C15p
-                     C15p -C15p    0     0  C44p     0
-                        0     0    0 -C15p     0  C66p])
+            if MST <: ZincBlende111_C14
+                C[m] = CustomMatrixElasticityTensor(
+                    1e-9*[  C11p    C12p    C13p    C14p    0       0
+                            C12p    C11p    C13p    -C14p   0       0
+                            C13p    C13p    C33p    0       0       0
+                            C14p    -C14p   0       C44p    0       0
+                            0       0       0       0       C44p    C14p
+                            0       0       0       0       C14p    C66p])
+            elseif MST <: ZincBlende111_C15
+                C[m] = CustomMatrixElasticityTensor(
+                    1e-9*[  C11p    C12p    C13p    0       C15p    0
+                            C12p    C11p    C13p    0       -C15p   0
+                            C13p    C13p    C33p    0       0       0
+                            0       0       0       C44p    0       -C15p
+                            C15p    -C15p   0       0       C44p     0
+                            0       0       0       -C15p   0       C66p])
+            elseif MST <: ZincBlende111_C14_C15
+                C[m] = CustomMatrixElasticityTensor(
+                    1e-9*[  C11p    C12p    C13p    C14p    C15p    0
+                            C12p    C11p    C13p    -C14p   -C15p   0
+                            C13p    C13p    C33p    0       0       0
+                            C14p    -C14p   0       C44p    0       -C15p
+                            C15p    -C15p   0       0       C44p     C14p
+                            0       0       0       -C15p   C14p    C66p])
+            end
 
             # piezoelectric tensor in C/(m^2)
             # Equation (27)
-
             E14zb = data[m].PiezoElectricConstants["E14zb"]
             E11 = - sqrt(2/3) * E14zb
             E12 = sqrt(2/3) * E14zb
@@ -264,10 +313,6 @@ function set_data(materials::Array{DataType,1}, MST::Type{<:MaterialStructureTyp
                     0   0   0   E15 0   E12
                     E31 E31 E33 0   0   0])
         elseif MST <: Wurtzite0001
-
-            # stiffness tensor in N/(nm)^2
-            # Equation (7)
-
             C11 = data[m].ElasticConstants["C11"]
             C12 = data[m].ElasticConstants["C12"]
             C44 = data[m].ElasticConstants["C44"]
@@ -277,6 +322,9 @@ function set_data(materials::Array{DataType,1}, MST::Type{<:MaterialStructureTyp
             C13wz = (1/6) * (2*C11 + 4 * C12 - 4 * C44)
             C44wz = (1/6) * (2*C11 - 2 * C12 + 2 * C44)
             C66wz = (1/6) * (1*C11 - 1 * C12 + 4 * C44)
+
+            # stiffness tensor in N/(nm)^2
+            # Equation (7)
             C[m] = CustomMatrixElasticityTensor(
                    1e-9*[ C11wz C12wz C13wz 0     0     0
                           C12wz C11wz C13wz 0     0     0
@@ -284,7 +332,6 @@ function set_data(materials::Array{DataType,1}, MST::Type{<:MaterialStructureTyp
                           0     0     0     C44wz 0     0
                           0     0     0     0     C44wz 0
                           0     0     0     0     0     C66wz ])
-
 
             # piezoelectric tensor in C/(m^2)
             # Equation (25)
