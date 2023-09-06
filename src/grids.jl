@@ -673,13 +673,13 @@ function nanowire_grid(; scale = [1,1,1,1], anisotropy = [1,1,1,1], reflevel = 1
 
     xgrid = simplexgrid(builder)
 
-    # Coords = xgrid[Coordinates]
-    # for k = 1 : 3, n = 1 : size(Coords,2)
-    #     Coords[k,n] *= anisotropy[k]
-    # end
-    # scale .*= anisotropy
+    Coords = xgrid[Coordinates]
+    for k = 1 : 3, n = 1 : size(Coords,2)
+        Coords[k,n] *= anisotropy[k]
+    end
+    scale .*= anisotropy
 
-    # xgrid = uniform_refine(xgrid,reflevel)
+    xgrid = uniform_refine(xgrid,reflevel)
 
     return xgrid
 end
@@ -978,7 +978,7 @@ end
 
 function bimetal_tensorgrid_uniform(; scale = [1,1,1], nrefs = 1, material_border = 0.5)
 
-    @info "Generating bimetal 3D grid for scale = $scale and middle interface at $material_border of height $scale[2]"
+    @info "Generating bimetal 3D grid for scale = $scale and middle interface at $material_border of height $(scale[2])"
 
     W = scale[1]
     H = scale[2]
@@ -989,15 +989,17 @@ function bimetal_tensorgrid_uniform(; scale = [1,1,1], nrefs = 1, material_borde
 
     hx = W/4*2.0^-nrefs
     hy = min(h1,h2)/2*2.0^-nrefs
-    hz = 100 * hz_factor
+    hz = 25 * hz_factor
 
     XX = 0:hx:W
-    YY = Array{Float64,1}(0:(h1-hy)/2:h1-hy)
-    append!(YY, Array{Float64,1}(LinRange(h1-hy,h1+hy,3)[2:end-1]))
-    append!(YY, Array{Float64,1}(h1+hy:(h2-hy)/2:H))
+    #YY = Array{Float64,1}(0:(h1-hy)/2:h1-hy)
+    #append!(YY, Array{Float64,1}(LinRange(h1-hy,h1+hy,3)[2:end-1]))
+    #append!(YY, Array{Float64,1}(h1+hy:(h2-hy)/2:H))
+    YY = 0:hx:H
     ZZ = Array{Float64,1}(0:hz:Z)
 
     xgrid = simplexgrid(XX,YY)
+    xgrid_cross_section = deepcopy(xgrid)
     xgrid = simplexgrid(xgrid, ZZ)
     xgrid = uniform_refine(xgrid,nrefs)
     # the offsets lead to the following boundary regions:
@@ -1023,14 +1025,72 @@ function bimetal_tensorgrid_uniform(; scale = [1,1,1], nrefs = 1, material_borde
     bfacemask!(xgrid,[0,0,Z],[W,h1,Z],9)  # top core
     bfacemask!(xgrid,[0,h1,Z],[W,H,Z],10) # top stressor
 
-    return xgrid
+    return xgrid, xgrid_cross_section
+
+end
+
+function bimetal_tensorgrid_uniform!(; scale = [1,1,1], nrefs = 1, material_border = 0.5)
+
+    @info "Generating bimetal 3D grid for scale = $scale and middle interface at $material_border of height $(scale[2])"
+
+    W = scale[1]
+    H = scale[2]
+    Z = scale[3]
+    h1 = round(scale[2]*material_border)
+    h2 = round(scale[2]*(1 - material_border))
+    hz_factor = 2.0^-nrefs
+
+    hx = W # W/4*2.0^-nrefs
+    hy = H/2 # min(h1,h2)/2*2.0^-nrefs
+    hz = 50 # 100 * hz_factor
+
+    XX = 0:hx:W
+    #YY = Array{Float64,1}(0:(h1-hy)/2:h1-hy)
+    #append!(YY, Array{Float64,1}(LinRange(h1-hy,h1+hy,3)[2:end-1]))
+    #append!(YY, Array{Float64,1}(h1+hy:(h2-hy)/2:H))
+	YY = 0:hy:H
+    ZZ = Array{Float64,1}(0:hz:Z)
+
+    xgrid = simplexgrid(YY,XX)
+    xgrid_cross_section = deepcopy(xgrid)
+	coords = deepcopy(xgrid[Coordinates])
+	xgrid[Coordinates][1,:] = -coords[2,:]
+	xgrid[Coordinates][2,:] = coords[1,:]
+	xgrid[Coordinates][1,:] .+= W
+    xgrid = simplexgrid(xgrid, ZZ)
+    xgrid = uniform_refine(xgrid,nrefs)
+    # the offsets lead to the following boundary regions:
+    # 1 - 6 = sides core & bottom
+    # 7 = bottom core
+    # 8 = bottom stressor
+    # 9 = top core
+    # 10 = top stressor
+
+    # assigning region numbers: core region = 1, stressor region = 2
+    cellmask!(xgrid,[0,0,0],[W,h1,Z],1)
+    cellmask!(xgrid,[0,h1,0],[W,H,Z],2)
+
+    # boundary faces
+    bfacemask!(xgrid,[0,0,0],[W,h1,Z],1)  # side core left
+    bfacemask!(xgrid,[0,h1,0],[0,H,Z],2)  # side stressor left
+    bfacemask!(xgrid,[0,H,0],[W,H,Z],3)   # side stressor
+    bfacemask!(xgrid,[W,0,0],[W,h1,Z],4)  # side core right
+    bfacemask!(xgrid,[W,h1,0],[W,H,Z],5)  # side stressor right
+    bfacemask!(xgrid,[0,0,0],[W,0,Z],6)   # side core
+    bfacemask!(xgrid,[0,0,0],[W,h1,0],7)  # bottom core
+    bfacemask!(xgrid,[0,h1,0],[W,H,0],8)  # bottom stressor
+    bfacemask!(xgrid,[0,0,Z],[W,h1,Z],9)  # top core
+    bfacemask!(xgrid,[0,h1,Z],[W,H,Z],10) # top stressor
+
+    return xgrid, xgrid_cross_section
 
 end
 
 
 function nanowire_tensorgrid_mirror(; scale = [1,1,1,1], shape = 1,
     nrefs = 1, z_nrefs = 2, z_levels_dist = 100, cut_levels = scale[4]/2,
-    refinement_width = nothing, corner_refinement = false, manual_refinement = false, max_nodes = 20)
+    refinement_width = nothing, corner_refinement = false, manual_refinement = false,
+    rotate = true, max_nodes = 20)
 
     @info "Generating nanowire grid for scale = $scale"
 
@@ -1040,7 +1100,6 @@ function nanowire_tensorgrid_mirror(; scale = [1,1,1,1], shape = 1,
     d1 = scale[1]
     d2 = scale[1] + scale[2]
     δ  = scale[3]
-    α = refinement_width
 
     ## assign nodes
     p = asign_nodes(p,builder,shape,d1,d2,δ)
@@ -1091,16 +1150,26 @@ function nanowire_tensorgrid_mirror(; scale = [1,1,1,1], shape = 1,
     xgrid = simplexgrid(builder)
 
     # mirror grid
-    xgrid_flipped=deepcopy(xgrid)
+    xgrid_flipped = deepcopy(xgrid)
     xgrid_flipped[Coordinates][1,:] .*= -1
-    xgrid=glue(xgrid,xgrid_flipped; interface=4)
+    xgrid = glue(xgrid,xgrid_flipped; interface=4)
     bfacemask!(xgrid,[0,-(d2+δ)],[0,d2+δ],0)
     if shape == 3
-        xgrid_flipped=deepcopy(xgrid)
+        xgrid_flipped = deepcopy(xgrid)
         xgrid_flipped[Coordinates][2,:] .*= -1
-        xgrid=glue(xgrid,xgrid_flipped; interface=4)
+        xgrid = glue(xgrid,xgrid_flipped; interface=4)
         bfacemask!(xgrid,[-(d2+2/sqrt(3)*δ),0],[d2+2/sqrt(3)*δ,0],0)
     end
+
+    # rotate grid 90 degrees clockwise
+    if rotate == true
+        xgrid_rotated=deepcopy(xgrid)
+        xgrid_rotated[Coordinates][1,:] = xgrid[Coordinates][2,:]
+        xgrid_rotated[Coordinates][2,:] = -xgrid[Coordinates][1,:]
+        xgrid = deepcopy(xgrid_rotated)
+    end
+
+    # save cross-section grid
     xgrid_cross_section=deepcopy(xgrid)
 
     # tensor grid in the z-direction
@@ -1270,7 +1339,7 @@ function refine(builder,shape,d1,d2,δ,α)
             point!(builder,px,py)
         end
     elseif shape == 2
-        num_pts = trunc(Int, 4*δ/(sqrt(3)*α))
+        num_pts = 10 # trunc(Int, 4*δ/(sqrt(3)*α))
         for n = 0 : num_pts
             g = n/num_pts
             ## adding points along the horizontal interface
