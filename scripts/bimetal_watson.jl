@@ -17,7 +17,7 @@ using ExtendableSparse
 # configure Watson
 @quickactivate "NanoWiresJulia" # <- project name
 # set parameters that should be included in filename
-watson_accesses = ["scale", "latmis", "femorder", "full_nonlin", "nrefs", "strainm", "mb", "grid_type", "bc"]
+watson_accesses = ["scale", "latmis", "femorder", "full_nonlin", "nrefs", "strainm", "mb", "grid_type", "bc", "mstruct","stressor_x"]
 watson_allowedtypes = (Real, String, Symbol, Array, DataType)
 watson_datasubdir = "bimetal_watson"
 
@@ -75,9 +75,13 @@ function get_defaults()
         "linsolver" => ExtendableSparse.MKLPardisoLU,   # linear solver (try ExtendableSparse.MKLPardisoLU or ExtendableSparse.LUFactorization)
         "grid_type" => "default",                       # grid options: default, condensator, condensator_tensorgrid
         "bc" => "robin",                                # boundary conditions: robin (Dirichlet and/or Newmann), periodic
+        "scenario" => 1,                                # scenario number that fixes materials for core/stressor (1: default, no specific material, 2: semiconductor materials)
+        "stressor_x" => 0.5,                            # x value for x-dependent stressor material
+        "mstruct" => ZincBlende111,                     # material structure type
+        "strainm" => NonlinearStrain3D,                 # strain model
     )
-    dim = length(params["scale"])
-    params["strainm"] = dim == 2 ? NonlinearStrain2D : NonlinearStrain3D
+    #dim = length(params["scale"])
+    #params["strainm"] = dim == 2 ? NonlinearStrain2D : NonlinearStrain3D
     return params
 end
 function set_params!(d; kwargs)
@@ -85,7 +89,7 @@ function set_params!(d; kwargs)
         @info "setting $((k,v))"
         d[String(k)]=v
     end
-    d["strainm"] = length(d["scale"]) == 2 ? NonlinearStrain2D : NonlinearStrain3D
+    #d["strainm"] = length(d["scale"]) == 2 ? NonlinearStrain2D : NonlinearStrain3D
     return nothing
 end
 
@@ -99,7 +103,7 @@ function get_data(d = nothing; kwargs)
 end
 
 
-function run_single(d = nothing; force::Bool = false, generate_vtk = true, kwargs...)
+function run_single(d = nothing; force::Bool = false, generate_vtk = true, Plotter = nothing, kwargs...)
 
     d = get_data(d; kwargs)
     @show d
@@ -112,22 +116,44 @@ function run_single(d = nothing; force::Bool = false, generate_vtk = true, kwarg
         @info "Running dataset $filename..."
     end
 
-    ## compute lattice_mismatch
     fulld = copy(d)
-    latmis = d["latmis"]
+
+    if d["scenario"] == 1
+        ## compute lattice_mismatch
+        latmis = d["latmis"]
+        lc = [5, 5 * ( 1 + latmis )]
+        @info "lattice mismatch: $(round(100*(lc[2]/lc[1]-1),digits=3)) %"
+    elseif d["scenario"] == 2
+        materials = [GaAs, AlInAs{d["stressor_x"]}]
+        materialstructuretype = d["mstruct"]
+        MD = set_data(materials, materialstructuretype)
+
+        nregions = length(MD.data)
+        lc::Array{Float64,1} = zeros(Float64,nregions)
+        for j = 1 : nregions
+            lc[j] = MD.data[j].LatticeConstants[1]
+        end
+
+        ## save data
+        fulld["MD"] = MD
+    else
+        @error "scenario not defined"
+    end
+
+    ## compute misfit strain
     mb = d["mb"]
     avgc = d["avgc"]
     scale = d["scale"]
-    lc = [5, 5 * ( 1 + latmis )]
-    x = 0.5
-    lc = [5.65325, 5.6605*x+6.0553*(1-x)]
-    @info "lattice mismatch: $(round(100*(lc[2]/lc[1]-1),digits=3)) %"
-    misfit_strain, α = get_lattice_mismatch_bimetal(avgc, [scale[1] * mb, scale[1] * (1 - mb)], lc)
-    fulld["misfit_strain"] = misfit_strain
-    fulld["α"] = α
+    misfit_strain, fulld["α"] = get_lattice_mismatch_bimetal(avgc, [scale[1] * mb, scale[1] * (1 - mb)], lc)
+    # fulld["misfit_strain"] = [[misfit_strain[1],misfit_strain[1],-2*misfit_strain[1]*MD.data[1].ElasticConstants["C12"]/MD.data[1].ElasticConstants["C11"]],
+    #                            [misfit_strain[2],misfit_strain[2],-2*misfit_strain[2]*MD.data[2].ElasticConstants["C12"]/MD.data[2].ElasticConstants["C11"]]]
+    # fulld["misfit_strain"] = [misfit_strain[1]*ones(Float64,3), misfit_strain[2]*ones(Float64,3)]
+    fulld["misfit_strain"] = [[0.,0.,0],[0.021986187362812704,0.021986187362812704,0.021986187362812704]]
+    @info fulld["misfit_strain"]
+    @info fulld["α"]
 
     ## run simulation
-    solution, residual = main(fulld)
+    solution, residual = main(fulld; Plotter = Plotter)
 
     ## save additional data
     fulld["solution"] = solution
@@ -144,103 +170,41 @@ function run_single(d = nothing; force::Bool = false, generate_vtk = true, kwarg
 end
 
 ## this calculates with user-given misfit strain
-function main(d::Dict; verbosity = 0)
+function main(d::Dict; Plotter = Plotter, verbosity = 0)
 
     ## unpack paramers
-    @unpack linsolver, latmis, E, ν, misfit_strain, α, full_nonlin, use_emb, nsteps, maxits, tres, scale, mb, femorder, nrefs, strainm, avgc, grid_type, bc = d
+    @unpack scenario, linsolver, latmis, misfit_strain, α, full_nonlin, use_emb, nsteps, maxits, tres, scale, mb, femorder, nrefs, strainm, avgc, grid_type, bc = d
     
     ## set log level
     set_verbosity(verbosity)
     
-    ## compute Lame' coefficients μ and λ from ν and E
-    #μ = E ./ (2  .* (1 .+ ν))
-    #λ = E .* ν ./ ( (1 .- 2*ν) .* (1 .+ ν))
+    if scenario == 1
+        ## compute Lame' coefficients μ and λ from ν and E
+        @unpack E, ν = d
+        μ = E ./ (2  .* (1 .+ ν))
+        λ = E .* ν ./ ( (1 .- 2*ν) .* (1 .+ ν))
+    elseif scenario == 2
+        @unpack MD = d
+        nregions = length(MD.data)
+        C11::Array{Float64,1} = zeros(Float64,nregions)
+        C12::Array{Float64,1} = zeros(Float64,nregions)
+        for j = 1 : nregions
+            C11[j] = MD.data[j].ElasticConstants["C11"]
+            C12[j] = MD.data[j].ElasticConstants["C12"]
+        end
 
-    x = 0.5 # composition of Al in Al{x}In{1-x}As
-    C11_data = [1221, (x*1250+ (1-x)*832.9)]
-    C12_data = [566, (x*534+ (1-x)*452.6)]
-    C44_data = [600, (x*542 + (1-x)*395.9)]
-    ## compute Lame' coefficients μ and λ from elasticity matrix C
-    λ = 1e-9 .* (C11_data .- 2*C44_data)
-    μ = 1e-9 .* C44_data
+        ## compute Lame' coefficients μ and λ from elasticity matrix C and update E and ν
+        λ = 1e-9 .* C12
+        μ = 1e-9 .* (C11 .- C12) ./ 2
 
-    C11 = C11_data[1]
-    C12 = C12_data[1]
-    C44 = C44_data[1]
-    C11wz = (1/6) * (3*C11 + 3 * C12 + 6 * C44)
-    C33wz = (1/6) * (2*C11 + 4 * C12 + 8 * C44)
-    C12wz = (1/6) * (1*C11 + 5 * C12 - 2 * C44)
-    C13wz = (1/6) * (2*C11 + 4 * C12 - 4 * C44)
-    C44wz = (1/6) * (2*C11 - 2 * C12 + 2 * C44)
-    C66wz = (1/6) * (1*C11 - 1 * C12 + 4 * C44)
-    sr2 = sqrt(2)
-    C11p = (1/2)*(C11 + C12) + C44
-    C12p = (1/6)*(C11 + 5*C12) - (1/3) * C44
-    C44p = (1/3)*(C11 + C12) + (1/3) * C44
-    C33p = (3/2)*C11p - (1/2)*C12p -C44p
-    C13p = -(1/2)*C11p + (3/2)*C12p + C44p
-    C15p = (1/sr2)*C11p - (1/sr2)*C12p - sr2*C44p
-    C66p = (1/2)*(C11p - C12p)
-    C1 = CustomMatrixElasticityTensor( # Wurtzite0001
-            1e-9*[ C11wz C12wz C13wz 0     0     0
-                    C12wz C11wz C13wz 0     0     0
-                    C13wz C13wz C33wz 0     0     0
-                    0     0     0     C44wz 0     0
-                    0     0     0     0     C44wz 0
-                    0     0     0     0     0     C66wz ])
-    C1 = CustomMatrixElasticityTensor( # ZincBlende001
-            1e-9*[  C11 C12 C12   0   0   0
-                    C12 C11 C12   0   0   0
-                    C12 C12 C11   0   0   0
-                        0   0   0 C44   0   0
-                        0   0   0   0 C44   0
-                        0   0   0   0   0 C44 ])
-    # C1 = CustomMatrixElasticityTensor( # ZincBlende111
-    #         1e-9*[  C11p  C12p C13p     0  C15p     0
-    #                 C12p  C11p C13p     0 -C15p     0
-    #                 C13p  C13p C33p     0     0     0
-    #                     0     0    0  C44p     0 -C15p
-    #                 C15p -C15p    0     0  C44p     0
-    #                     0     0    0 -C15p     0  C66p])
+        @info λ
+        @info μ
 
-    C11 = C11_data[2]
-    C12 = C12_data[2]
-    C44 = C44_data[2]
-    C11wz = (1/6) * (3*C11 + 3 * C12 + 6 * C44)
-    C33wz = (1/6) * (2*C11 + 4 * C12 + 8 * C44)
-    C12wz = (1/6) * (1*C11 + 5 * C12 - 2 * C44)
-    C13wz = (1/6) * (2*C11 + 4 * C12 - 4 * C44)
-    C44wz = (1/6) * (2*C11 - 2 * C12 + 2 * C44)
-    C66wz = (1/6) * (1*C11 - 1 * C12 + 4 * C44)
-    sr2 = sqrt(2)
-    C11p = (1/2)*(C11 + C12) + C44
-    C12p = (1/6)*(C11 + 5*C12) - (1/3) * C44
-    C44p = (1/3)*(C11 + C12) + (1/3) * C44
-    C33p = (3/2)*C11p - (1/2)*C12p -C44p
-    C13p = -(1/2)*C11p + (3/2)*C12p + C44p
-    C15p = (1/sr2)*C11p - (1/sr2)*C12p - sr2*C44p
-    C66p = (1/2)*(C11p - C12p)
-    C2 = CustomMatrixElasticityTensor( # Wurtzite0001
-            1e-9*[ C11wz C12wz C13wz 0     0     0
-                    C12wz C11wz C13wz 0     0     0
-                    C13wz C13wz C33wz 0     0     0
-                    0     0     0     C44wz 0     0
-                    0     0     0     0     C44wz 0
-                    0     0     0     0     0     C66wz ])
-    C2 = CustomMatrixElasticityTensor( # ZincBlende001
-            1e-9*[  C11 C12 C12   0   0   0
-                    C12 C11 C12   0   0   0
-                    C12 C12 C11   0   0   0
-                        0   0   0 C44   0   0
-                        0   0   0   0 C44   0
-                        0   0   0   0   0 C44 ])
-    # C2 = CustomMatrixElasticityTensor( # ZincBlende111
-    #         1e-9*[  C11p  C12p C13p     0  C15p     0
-    #                 C12p  C11p C13p     0 -C15p     0
-    #                 C13p  C13p C33p     0     0     0
-    #                     0     0    0  C44p     0 -C15p
-    #                 C15p -C15p    0     0  C44p     0
-    #                     0     0    0 -C15p     0  C66p])
+        d["E"] = μ .* (3 .* λ .+ 2 .* μ) ./ (μ .+ λ)
+        d["ν"] = λ ./ (2 .* (λ .+  μ))
+    else
+        @error "scenario not defined"
+    end
 
     ## generate bimetal mesh
     dim::Int = length(scale)
@@ -252,7 +216,10 @@ function main(d::Dict; verbosity = 0)
             #xgrid = bimetal_strip3D(; material_border = mb, scale = scale)
             #xgrid = uniform_refine(xgrid,nrefs)
             #xgrid = bimetal_tensorgrid(; scale = scale, nrefs = nrefs, material_border = mb); dirichlet_regions = [3,4]
-            xgrid = bimetal_tensorgrid_uniform(; scale = scale, nrefs = nrefs, material_border = mb); dirichlet_regions = [7,8]
+
+            #xgrid, xgrid_cross_section = bimetal_tensorgrid_uniform(; scale = scale, nrefs = nrefs, material_border = mb); dirichlet_regions = [7,8]
+            xgrid = bimetal_tensorgrid_uniform!(; scale = scale, nrefs = nrefs, material_border = mb); dirichlet_regions = [7,8]
+
         elseif grid_type == "condensator"
             xgrid = condensator3D(; scale = scale, d = 10, nrefs = nrefs); dirichlet_regions = [1,2,5,6] # core sides and bottoms
         elseif grid_type == "condensator_tensorgrid"
@@ -294,6 +261,10 @@ function main(d::Dict; verbosity = 0)
         FEType = H1Pk{2,2,femorder}
         xgrid = uniform_refine(xgrid,nrefs)
     end
+    if Plotter !== nothing
+        gridplot(xgrid_cross_section; Plotter=Plotter)
+        @show xgrid
+    end
 
     ## setup model
     full_nonlin *= strainm <: NonlinearStrain
@@ -302,10 +273,16 @@ function main(d::Dict; verbosity = 0)
     ## generate problem description
     Problem = PDEDescription("bimetal deformation under misfit strain")
     add_unknown!(Problem; unknown_name = "u", equation_name = "displacement equation")
-    add_operator!(Problem, 1, get_displacement_operator(C1, strainm, misfit_strain[1], α[1]; dim = dim, emb = emb, regions = [1], bonus_quadorder = 2*(femorder-1)))
-    add_operator!(Problem, 1, get_displacement_operator(C2, strainm, misfit_strain[2], α[2]; dim = dim, emb = emb, regions = [2], bonus_quadorder = 2*(femorder-1)))
-    #add_operator!(Problem, 1, get_displacement_operator(IsotropicElasticityTensor(λ[1], μ[1], dim), strainm, misfit_strain[1], α[1]; dim = dim, emb = emb, regions = [1], bonus_quadorder = 2*(femorder-1)))
-    #add_operator!(Problem, 1, get_displacement_operator(IsotropicElasticityTensor(λ[2], μ[2], dim), strainm, misfit_strain[2], α[2]; dim = dim, emb = emb, regions = [2], bonus_quadorder = 2*(femorder-1)))
+    for r = 1 : 2
+        if scenario == 1
+            add_operator!(Problem, 1, get_displacement_operator(IsotropicElasticityTensor(λ[r], μ[r], dim), strainm, misfit_strain[r], α[r]; dim = dim, emb = emb, regions = [r], bonus_quadorder = 2*(femorder-1)))
+        elseif scenario == 2
+            add_operator!(Problem, 1, get_displacement_operator(MD.TensorC[r], strainm, misfit_strain[r], α[r]; dim = dim, emb = emb, regions = [r], bonus_quadorder = 2*(femorder-1)))
+            #add_operator!(Problem, 1, get_displacement_operator(IsotropicElasticityTensor(λ[r], μ[r], dim), strainm, misfit_strain[r], α[r]; dim = dim, emb = emb, regions = [r], bonus_quadorder = 2*(femorder-1)))
+        else
+            @error "scenario not defined"
+        end
+    end
     damping = 0
     if bc != "periodic"
         if length(dirichlet_regions) > 0
@@ -344,7 +321,7 @@ function main(d::Dict; verbosity = 0)
             add_constraint!(Problem, CombineDofs(1, 1, dofsX, dofsY))
         end
     end
-    @show Problem, misfit_strain
+    @show Problem
 
     if use_emb
         Solution, residual = solve_by_embedding!(Solution, Problem, xgrid, emb, nsteps = [nsteps],
@@ -375,11 +352,7 @@ function get_lattice_mismatch_bimetal(avgc, geometry, lc)
         end
     end
 
-    if avgc == 1
-        return a, a
-    else
-        return a .* (1 .+ a./2), a
-    end
+    return a .* (1 .+ a./2), a
 end
 
 

@@ -20,7 +20,7 @@ using Pardiso
 @quickactivate "NanoWiresJulia" # <- project name
 # set parameters that should be included in filename
 #watson_accesses = ["mstruct", "geometry", "scenario", "shell_x", "stressor_x", "full_nonlin", "nrefs", "femorder", "femorder_P"]
-watson_accesses = ["geometry", "nrefs", "femorder", "mstruct", "stressor_x", "uniform_grid", "interface_refinement", "cross_section"]
+watson_accesses = ["geometry", "nrefs", "femorder", "mstruct", "stressor_x", "full_nonlin", "interface_refinement", "cross_section", "rotate"]
 watson_allowedtypes = (Real, String, Symbol, Array, DataType)
 watson_datasubdir = "nanowire"
 
@@ -54,7 +54,8 @@ function get_defaults()
         "z_levels_dist" => 100,                         # distance between z-levels is z_levels_dist * 2^(-nrefs)
         "cut_levels_pos" => [0.5],                      # position of cut-levels w.r.t. nanowire length. i.e., cut_levels = cut_levels_pos * geometry[4]
         "cross_section" => 1,                           # geometry of stressor; either version 1,2 or 3
-        "corner_refinement" => false                    # assigning more nodes at interface corners
+        "corner_refinement" => false,                   # assigning more nodes at interface corners
+        "rotate" =>  true                               # rotate cross section by 90 degrees clockwise
     )
     return params
 end
@@ -69,13 +70,15 @@ end
 
 function get_scenario(scenario, shell_x, stressor_x, materialstructuretype)
     if scenario == 1
-        materials = [GaAs,GaAs,AlInAs{stressor_x}]              # scenario 1
+        materials = [GaAs,GaAs,AlInAs{stressor_x}]                  # scenario 1
     elseif scenario == 2
-        materials = [GaAs,AlInAs{shell_x},AlInAs{stressor_x}]   # scenario 2
+        materials = [GaAs,AlInAs{shell_x},AlInAs{stressor_x}]       # scenario 2
     elseif scenario == 3
-        materials = [GaAs,GaAs,AlGaAs{stressor_x}]              # scenario 3
+        materials = [GaAs,GaAs,AlGaAs{stressor_x}]                  # scenario 3
     elseif scenario == 4
-        materials = [GaAs,GaAs,InGaAs{stressor_x}]              # scenario 4
+        materials = [GaAs,GaAs,InGaAs{stressor_x}]                  # scenario 4
+    elseif scenario == 5
+        materials = [InGaAs{0.53},InGaAs{0.53},AlInAs{stressor_x}]  # scenario 5
     else
         @error "scenario not defined"
     end
@@ -122,7 +125,7 @@ function main(d = nothing; verbosity = 0, Plotter = nothing, force::Bool = false
     parameters::Array{Float64,1} = [full_nonlin ? 1 : 0]
     quadorder_D = (femorder > 1) ? 2 : 0 # dramatically increases runtime! (3*(femorder-1) would be exact)
     ## compute lattice misfit strain
-    eps0, a = get_lattice_misfit_nanowire(avgc, MD, geometry)
+    eps0, a = get_lattice_misfit_nanowire(avgc, MD, geometry, full_nonlin)
 
     println("        strain type = $(strainm)")
     println("   elasticity model = $(full_nonlin ? "full" : "simplified")")
@@ -149,9 +152,14 @@ function main(d = nothing; verbosity = 0, Plotter = nothing, force::Bool = false
         xgrid = uniform_refine(xgrid,nrefs)
     else
         geometry = Array{Float64,1}(geometry)
-        geometry[1] /= sqrt(3)  # core hexagon side
-        geometry[2] /= sqrt(3)  # shell hexagon side
-                                # geometry[3] is the stressor width
+        if d["cross_section"] == 1 || d["cross_section"] == 2
+            geometry[1] /= sqrt(3)  # core hexagon side
+            geometry[2] /= sqrt(3)  # shell hexagon side
+                                    # geometry[3] is the stressor width
+        elseif d["cross_section"] == 3
+            # geometry[1] and geometry[2] are the core/shell hexagon sides, i.e., geometry[1]+geometry[2] is the diameter of the core+shell hexagon
+            geometry[3] *= 2/sqrt(3) # geometry[3] is the stressor hexagon side
+        end
         if d["uniform_grid"] == true
             d["cut_levels"] = nothing
         else
@@ -159,10 +167,12 @@ function main(d = nothing; verbosity = 0, Plotter = nothing, force::Bool = false
 
         end
         if d["interface_refinement"] == true
-            if d["cross_section"] == 3
-                refinement_width = 1/4*geometry[2]/sqrt(3)
-            else
-               refinement_width = 1/4*geometry[3]
+            if d["cross_section"] == 1
+                refinement_width = 1/4*geometry[3]
+            elseif d["cross_section"] == 3
+               refinement_width = (geometry[3] >= 10 ? 4 : 1 + (geometry[1]+geometry[2])/25)/sqrt(3)
+            elseif d["cross_section"] == 3
+                refinement_width = 1/4*geometry[2]
             end
            manual_refinement = true
         else
@@ -172,7 +182,7 @@ function main(d = nothing; verbosity = 0, Plotter = nothing, force::Bool = false
         xgrid, xgrid_cross_section = nanowire_tensorgrid_mirror(; scale = geometry, nrefs = nrefs, z_nrefs = 2, shape = d["cross_section"],
                                             cut_levels = d["cut_levels"], z_levels_dist = d["z_levels_dist"],
                                             refinement_width = refinement_width, corner_refinement = d["corner_refinement"],
-                                            manual_refinement = manual_refinement)
+                                            manual_refinement = manual_refinement, rotate = d["rotate"])
     end
     #xgrid = nanowire_grid(; scale = geometry)
     gridplot(xgrid_cross_section; Plotter=Plotter)
@@ -275,35 +285,6 @@ function main(d = nothing; verbosity = 0, Plotter = nothing, force::Bool = false
         end
     end
 
-    # ## rotate back (in case of ZincBlende111)
-    # if mstruct <: ZincBlende111
-
-    #     FES = Solution[1].FES
-    #     ndofs4component = FES.coffset
-    #     E = Solution.entries
-    #     a = zeros(Float64,3)
-    #     for dof = 1 : ndofs4component
-    #         a[1] = E[dof]
-    #         a[2] = E[dof+ndofs4component]
-    #         a[3] = E[dof+2*ndofs4component]
-    #         # multiply with inverse of rotation matrix
-    #         # U = [ 1/sqrt(6) 1/sqrt(6) -sqrt(2/3)
-    #         #      -1/sqrt(2) 1/sqrt(2)          0
-    #         #       1/sqrt(3) 1/sqrt(3)  1/sqrt(3)]
-    #         #
-    #         # invU = [ 1/sqrt(6) -1/sqrt(2) 1/sqrt(3)
-    #         #          1/sqrt(6)  1/sqrt(2) 1/sqrt(3)
-    #         #         -sqrt(2/3)          0 1/sqrt(3)]
-    #         E[dof]                   =  1/sqrt(6)*a[1] - 1/sqrt(2)*a[2] + 1/sqrt(3)*a[3]
-    #         E[dof+ndofs4component]   =  1/sqrt(6)*a[1] + 1/sqrt(2)*a[2] + 1/sqrt(3)*a[3]
-    #         E[dof+2*ndofs4component] = -sqrt(2/3)*a[1] + 1/sqrt(3)*a[3]
-
-    #         E[dof]                   =  1/sqrt(6)*a[1] - 1/sqrt(6)*a[2] - sqrt(2/3)*a[3]
-    #         E[dof+ndofs4component]   = -1/sqrt(2)*a[1] + 1/sqrt(2)*a[2]
-    #         E[dof+2*ndofs4component] =  1/sqrt(3)*a[1] + 1/sqrt(3)*a[2] + 1/sqrt(3)*a[3]
-    #     end
-    # end
-
     ## add computed data to dict
     resultd = deepcopy(d)
     resultd["eps0"] = eps0
@@ -328,13 +309,14 @@ function main(d = nothing; verbosity = 0, Plotter = nothing, force::Bool = false
 end
 
 
-function get_lattice_misfit_nanowire(lcavg_case, MD::MaterialData, geometry)
+function get_lattice_misfit_nanowire(lcavg_case, MD::MaterialData, geometry, full_nonlin)
 
     nregions = length(MD.data)
     lc_avg::Array{Float64,1} = zeros(Float64,3)
     eps0::Array{Array{Float64,1},1} = Array{Array{Float64,1},1}(undef, nregions)
     r::Array{Float64,1} = geometry[1:3]
     a::Array{Float64,1} = zeros(Float64,3)
+    E::Array{Float64,1} = zeros(Float64,3)
 
     lc = Array{Array{Float64,1}}(undef, nregions)
     for j = 1 : nregions
@@ -349,27 +331,48 @@ function get_lattice_misfit_nanowire(lcavg_case, MD::MaterialData, geometry)
             #lc_avg[j] = (lc[1][j]*A_core + lc[2][j]*A_stressor)/(A_core + A_stressor)
             lc_avg[j] = 2*lc[1][j]*lc[2][j]/(lc[1][j] + lc[2][j])
         end
-    elseif nregions == 3
+    elseif nregions == 3 # core and shell are a joint region
         # equilibrium strain for nanowire
-        A_core = 3*sqrt(3)/2 * r[1]^2
-        A_shell = 3*sqrt(3)/2 * (r[2]^2 + 2*r[1]*r[2])
-        A_stressor = sqrt(3)/2 * r[3] * (7*(r[1]+r[2]) + 3*r[3])
+        #A_core = 3*sqrt(3)/2 * r[1]^2
+        #A_shell = 3*sqrt(3)/2 * (r[2]^2 + 2*r[1]*r[2])
+        #A_stressor = sqrt(3)/2 * r[3] * (7*(r[1]+r[2]) + 3*r[3])
+        d  = (r[1]+r[2])/sqrt(3)
+        for region = 1 : nregions
+            C = MD.TensorC[region].C
+            E[region] = C[3,3] - 2 * C[1,3]^2/(C[1,1] + C[1,2])
+        end
+
         for j = 1 : 3
-            lc_avg[j] = (lc[1][j]*A_core + lc[2][j]*A_shell + lc[3][j]*A_stressor)/(A_core + A_shell + A_stressor)
+            #lc_avg[j] = (lc[1][j]*A_core + lc[2][j]*A_shell + lc[3][j]*A_stressor)/(A_core + A_shell + A_stressor)
+            lc_avg[j] = (lc[1][j]*(405*sqrt(3)*d^5*lc[3][j]*E[1]^3 - 54*d^2*r[3]*(d*(37*d + 12*sqrt(3)*r[3])*lc[1][j] -
+                (81*d^2 + 30*sqrt(3)*d*r[3] + 16*r[3]^2)*lc[3][j])*E[1]^2*E[3] +
+                6*d*r[3]^2*(-16*sqrt(3)*r[3]^2*(lc[1][j] - 6*lc[3][j]) + 72*d*r[3]*(-2*lc[1][j] + 5*lc[3][j]) +
+                sqrt(3)*d^2*(-163*lc[1][j] + 314*lc[3][j]))*E[1]*E[3]^2 - 8*r[3]^3*(15*d^2 + 16*r[3]^2)*(lc[1][j] - 2*lc[3][j])*E[3]^3))/
+                (lc[3][j]*(3*sqrt(3)*d*E[1] + 4*r[3]*E[3])*(135*d^4*E[1]^2 +
+                12*d*r[3]*(17*sqrt(3)*d^2 + 27*d*r[3] + 8*sqrt(3)*r[3]^2)*E[1]*E[3] + 2*r[3]^2*(15*d^2 + 16*r[3]^2)*E[3]^2))
         end
     end
+
+    @info E
+    @info lc_avg
+    sdsdfdsg
 
     for region = 1 : nregions
         eps0[region] = zeros(Float64,3)
         for j = 1 : 3
             if lcavg_case == 1
-                a[j] = (lc[region][j] - lc[1][j])/lc[1][j]
+                a[j] = (lc[region][j] - lc[1][j])/lc[region][j]
             elseif lcavg_case == 2
                 a[j] = (lc[region][j] - lc_avg[j])/lc[region][j]
             elseif lcavg_case == 3
                 a[j] = (lc[region][j] - lc_avg[j])/lc_avg[j]
             end
-            eps0[region][j] = a[j] * (1 + a[j]/2)
+
+            if full_nonlin == false
+                eps0[region][j] = a[j]
+            else
+                eps0[region][j] = a[j] * (1 + a[j]/2)
+            end
         end
     end
 
@@ -377,7 +380,7 @@ function get_lattice_misfit_nanowire(lcavg_case, MD::MaterialData, geometry)
 end
 
 ## load a result dictionary (to browse results in julia)
-function load_data(d = nothing; kwargs...)
+function load_data(d = nothing; watson_datasubdir = watson_datasubdir, kwargs...)
     ## complete parameter set
     if d === nothing
         d = get_defaults()
@@ -398,13 +401,13 @@ function export_vtk(d = nothing; upscaling = 0, kwargs...)
     exportVTK(datadir(watson_datasubdir, filename_vtk), solution[1]; P0strain = true, upscaling = upscaling, strain_model = d["strainm"], eps0 = d["eps0"])
 end
 
-function postprocess(filename = nothing; Plotter = nothing, export_vtk = true, cut_levels = "auto", simple_cuts = true, cut_npoints = 200, vol_cut = "auto", eps_gfind = 1e-12, upscaling = 0, kwargs...)
+function postprocess(filename = nothing; watson_datasubdir = watson_datasubdir, Plotter = nothing, export_vtk = true, cross_section_cuts = true, cut_levels = "auto", simple_cuts = true, cut_npoints = 200, vol_cut = "auto", eps_gfind = 1e-12, upscaling = 0, kwargs...)
 
     if typeof(filename) <: Dict
         d = filename
         filename = savename(d, "jld2"; allowedtypes = watson_allowedtypes, accesses = watson_accesses)
     elseif filename === nothing
-        d = load_data(; kwargs...)
+        d = load_data(watson_datasubdir = watson_datasubdir; kwargs...)
         filename = savename(d, "jld2"; allowedtypes = watson_allowedtypes, accesses = watson_accesses)
     else
         d = wload(datadir(watson_datasubdir, filename))
@@ -433,21 +436,23 @@ function postprocess(filename = nothing; Plotter = nothing, export_vtk = true, c
     wsave(datadir(watson_datasubdir, filename), d)
 
     ## compute cuts (only exported as vtu and png files)
-    @unpack strainm, nrefs = d
-    if cut_levels == "auto"
-        cut_levels = [0.3,0.4,0.5,0.6,0.7] * geometry[4]
-    end
-    if vol_cut == "auto"
-        vol_cut = 4.0^(2-nrefs)
-    end
-    filename_cuts = savename(d, ""; allowedtypes = watson_allowedtypes, accesses = watson_accesses) * "_CUTS/"
-    mkpath(datadir(watson_datasubdir, filename_cuts))
-    diam = geometry[1] + geometry[2]
-    plane_points = [[-0.25*diam,-0.25*diam],[0.25*diam,-0.25*diam],[-0.25*diam,0.25*diam]] # = [X,Y] coordinates of the three points that define the cut plane
-    if simple_cuts # needs grid that triangulates cut_levels
-        perform_simple_plane_cuts(datadir(watson_datasubdir, filename_cuts), solution, plane_points, cut_levels; eps0 = d["eps0"], eps_gfind = eps_gfind, cut_npoints = cut_npoints, only_localsearch = true, strain_model = strainm, Plotter = Plotter, upscaling = upscaling)
-    else
-        #perform_plane_cuts(datadir(watson_datasubdir, filename_cuts), solution, plane_points, cut_levels; strain_model = strainm, cut_npoints = cut_npoints, vol_cut = vol_cut, Plotter = Plotter)
+    if cross_section_cuts
+        @unpack strainm, nrefs = d
+        if cut_levels == "auto"
+            cut_levels = [0.3,0.4,0.5,0.6,0.7] * geometry[4]
+        end
+        if vol_cut == "auto"
+            vol_cut = 4.0^(2-nrefs)
+        end
+        filename_cuts = savename(d, ""; allowedtypes = watson_allowedtypes, accesses = watson_accesses) * "_CUTS/"
+        mkpath(datadir(watson_datasubdir, filename_cuts))
+        diam = geometry[1] + geometry[2]
+        plane_points = [[-0.25*diam,-0.25*diam],[0.25*diam,-0.25*diam],[-0.25*diam,0.25*diam]] # = [X,Y] coordinates of the three points that define the cut plane
+        if simple_cuts # needs grid that triangulates cut_levels
+            perform_simple_plane_cuts(datadir(watson_datasubdir, filename_cuts), solution, plane_points, cut_levels; eps0 = d["eps0"], eps_gfind = eps_gfind, cut_npoints = cut_npoints, only_localsearch = true, strain_model = strainm, Plotter = Plotter, upscaling = upscaling)
+        else
+            #perform_plane_cuts(datadir(watson_datasubdir, filename_cuts), solution, plane_points, cut_levels; strain_model = strainm, cut_npoints = cut_npoints, vol_cut = vol_cut, Plotter = Plotter)
+        end
     end
 
     return d
