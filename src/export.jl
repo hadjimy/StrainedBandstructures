@@ -28,6 +28,7 @@ function exportVTK(filename, Displacement::FEVectorBlock{T,Tv,Ti,FEType,APT}, Po
             result[2] -= misfit[item[3]][2]
             result[3] -= misfit[item[3]][3]
         end
+        # result cointains strain in Voigt notation; divide by 2 to calculate the off-diagonal strain components
         result[4] /= 2
         result[5] /= 2
         result[6] /= 2
