@@ -353,10 +353,6 @@ function get_lattice_misfit_nanowire(lcavg_case, MD::MaterialData, geometry, ful
         end
     end
 
-    @info E
-    @info lc_avg
-    sdsdfdsg
-
     for region = 1 : nregions
         eps0[region] = zeros(Float64,3)
         for j = 1 : 3
