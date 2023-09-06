@@ -38,8 +38,8 @@ end
         op.add_gradu_x_stress!(result, input; factor = op.emb[1], offset = op.cache_offset)
     end
 
-    ## multiply by 1/(1 + α) * I
-    result .*= 1 / (1 .+ op.α[item[3]])
+    ## multiply by -1/(1 + α) * I
+    result .*= -1 ./ (1 .+ op.α[item[3]])
 
     return nothing
 end
@@ -168,7 +168,7 @@ function get_displacement_operator(
         end
 
         ## multiply by -1/(1 + α) * I
-        result .*= -1 / (1 .+ α)
+        result .*= -1 ./ (1 .+ α)
 
         return nothing
     end
@@ -380,34 +380,33 @@ function get_polarisation_operator(
                          newton = true)                             # activate Newton derivatives (false won't work here)
 end
 
-# Voigt notation compresses entries of symmetric matrices
+# Voigt notation compresses stress entries of symmetric matrices
 #
 # 2D Voigt(S) [1,2,3] --> [1 3
 #                          3 2]
 #
 @inline function uncompress_voigt2D!(result, input; offset = 0)
     result[1] = input[offset+1]
-    result[2] = input[offset+3]/2
-    result[3] = input[offset+3]/2
+    result[2] = input[offset+3]
+    result[3] = input[offset+3]
     result[4] = input[offset+2]
     return nothing
 end
 
-# Voigt notation compresses entries of symmetric matrices
+# Voigt notation compresses stress entries of symmetric matrices
 #
 #                               [1 6 5
 # 3D Voigt(S) [1,2,3,4,5,6] -->  6 2 4
 #                                5 4 3]
-# where off-diagonal components must be divided by 2.
 @inline function uncompress_voigt3D!(result, input; offset = 0)
     result[1] = input[offset+1]
-    result[2] = input[offset+6]/2
-    result[3] = input[offset+5]/2
-    result[4] = input[offset+6]/2
+    result[2] = input[offset+6]
+    result[3] = input[offset+5]
+    result[4] = input[offset+6]
     result[5] = input[offset+2]
-    result[6] = input[offset+4]/2
-    result[7] = input[offset+5]/2
-    result[8] = input[offset+4]/2
+    result[6] = input[offset+4]
+    result[7] = input[offset+5]
+    result[8] = input[offset+4]
     result[9] = input[offset+3]
     return nothing
 end
@@ -416,21 +415,21 @@ end
 # result .+= factor * (∇u σ(u))  (matrix-matrix product)
 # input = [∇u, σ(u)]
 @inline function add_gradu_x_stress2D!(result, input; offset = 0, factor = 1)
-    result[1] += factor * (input[offset+1]   * input[1] + input[offset+3]/2 * input[2])
-    result[2] += factor * (input[offset+3]/2 * input[1] + input[offset+2]   * input[2])
-    result[3] += factor * (input[offset+1]   * input[3] + input[offset+3]/2 * input[4])
-    result[4] += factor * (input[offset+3]/2 * input[3] + input[offset+2]   * input[4])
+    result[1] += factor * (input[offset+1]*input[1] + input[offset+3]*input[2])
+    result[2] += factor * (input[offset+3]*input[1] + input[offset+2]*input[2])
+    result[3] += factor * (input[offset+1]*input[3] + input[offset+3]*input[4])
+    result[4] += factor * (input[offset+3]*input[3] + input[offset+2]*input[4])
     return nothing
 end
 @inline function add_gradu_x_stress3D!(result, input; offset = 0, factor = 1)
-    result[1] += factor * (input[offset+1]   * input[1] + input[offset+6]/2 * input[2] + input[offset+5]/2 * input[3])
-    result[2] += factor * (input[offset+6]/2 * input[1] + input[offset+2]   * input[2] + input[offset+4]/2 * input[3])
-    result[3] += factor * (input[offset+5]/2 * input[1] + input[offset+4]/2 * input[2] + input[offset+3]   * input[3])
-    result[4] += factor * (input[offset+1]   * input[4] + input[offset+6]/2 * input[5] + input[offset+5]/2 * input[6])
-    result[5] += factor * (input[offset+6]/2 * input[4] + input[offset+2]   * input[5] + input[offset+4]/2 * input[6])
-    result[6] += factor * (input[offset+5]/2 * input[4] + input[offset+4]/2 * input[5] + input[offset+3]   * input[6])
-    result[7] += factor * (input[offset+1]   * input[7] + input[offset+6]/2 * input[8] + input[offset+5]/2 * input[9])
-    result[8] += factor * (input[offset+6]/2 * input[7] + input[offset+2]   * input[8] + input[offset+4]/2 * input[9])
-    result[9] += factor * (input[offset+5]/2 * input[7] + input[offset+4]/2 * input[8] + input[offset+3]   * input[9])
+    result[1] += factor * (input[offset+1]*input[1] + input[offset+6]*input[2] + input[offset+5]*input[3])
+    result[2] += factor * (input[offset+6]*input[1] + input[offset+2]*input[2] + input[offset+4]*input[3])
+    result[3] += factor * (input[offset+5]*input[1] + input[offset+4]*input[2] + input[offset+3]*input[3])
+    result[4] += factor * (input[offset+1]*input[4] + input[offset+6]*input[5] + input[offset+5]*input[6])
+    result[5] += factor * (input[offset+6]*input[4] + input[offset+2]*input[5] + input[offset+4]*input[6])
+    result[6] += factor * (input[offset+5]*input[4] + input[offset+4]*input[5] + input[offset+3]*input[6])
+    result[7] += factor * (input[offset+1]*input[7] + input[offset+6]*input[8] + input[offset+5]*input[9])
+    result[8] += factor * (input[offset+6]*input[7] + input[offset+2]*input[8] + input[offset+4]*input[9])
+    result[9] += factor * (input[offset+5]*input[7] + input[offset+4]*input[8] + input[offset+3]*input[9])
     return nothing
 end

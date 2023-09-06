@@ -1,4 +1,4 @@
-
+using DrWatson
 
 # modification from https://github.com/j-fu/GridVisualize.jl/blob/main/src/common.jl
 function tet_x_plane!(ixcoord,ixvalues,iedges,pointlist,node_indices,planeq_values,function_values; tol=0.0)
@@ -353,6 +353,10 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
 
         cut_level = cut_levels[l]
 
+        # make cut_level subdirectory
+        mkpath(datadir(target_folder_cut, "z=$(cut_level)/"))
+        target_folder_cut_level = target_folder_cut * "z=$(cut_level)/"
+
         ## find faces for this cut_level
         faces4level = findall(abs.(z4Faces .- cut_level) .< eps_gfind)
         if length(faces4level) < 1
@@ -528,7 +532,7 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
         kwargs[:grad_displacement] = nodevals_gradient
         kwargs[:strain] = nodevals_ϵu
  #       kwargs[:elastic_strain] = nodevals_ϵu_elastic
-        ExtendableGrids.writeVTK(target_folder_cut * "simple_cut_$(cut_level)_data.vtu", cut_grid; kwargs...)
+        ExtendableGrids.writeVTK(target_folder_cut_level * "simple_cut_$(cut_level)_data.vtu", cut_grid; kwargs...)
         
         component_names = ["XX","YY","ZZ","YZ","XZ","XY"]
         xmin = minimum(view(xCoordinatesCutPlane,a,:))
@@ -541,17 +545,17 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
             for j = 1 : 3
                 scalarplot(cut_grid2D, view(nodevals,j,:), Plotter = Plotter; xlimits = (xmin-2,xmax+2), ylimits = (ymin-2,ymax+2), title = "$(labels[j]) on cut", fignumber = 1)
                 if isdefined(Plotter,:savefig)
-                    Plotter.savefig(target_folder_cut * "simple_cut_$(cut_level)_$(labels[j]).png")
+                    Plotter.savefig(target_folder_cut_level * "simple_cut_$(cut_level)_$(labels[j]).png")
                 end
             end
             for k = 1 : 6
                 scalarplot(cut_grid2D, view(nodevals_ϵu,k,:), Plotter = Plotter; xlimits = (xmin-2,xmax+2), ylimits = (ymin-2,ymax+2), title = "ϵ_$(component_names[k]) on cut", fignumber = 1)
                 if isdefined(Plotter,:savefig)
-                    Plotter.savefig(target_folder_cut * "simple_cut_$(cut_level)_ϵ$(component_names[k]).png")
+                    Plotter.savefig(target_folder_cut_level * "simple_cut_$(cut_level)_ϵ$(component_names[k]).png")
                 end
                 # scalarplot(cut_grid2D, view(nodevals_ϵu_elastic,k,:), Plotter = Plotter; title = "ϵ_elastic_$(component_names[k]) on cut", fignumber = 1)
                 # if isdefined(Plotter,:savefig)
-                #     Plotter.savefig(target_folder_cut * "simple_cut_$(cut_level)_ϵ_elastic_$(component_names[k]).png")
+                #     Plotter.savefig(target_folder_cut_level * "simple_cut_$(cut_level)_ϵ_elastic_$(component_names[k]).png")
                 # end
             end
         end
@@ -696,7 +700,7 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
 
             ## write material map into txt files
             @info "Writing material map file..."
-            filename_material = target_folder_cut * "map.dat"
+            filename_material = target_folder_cut_level * "map.dat"
             io = open(filename_material, "w")
             xCellNodesUni = xgrid_uni[CellNodes]
             nnodes_uni = size(xCoordinatesUni,2)
@@ -758,7 +762,7 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
             if length(Solution) > 1
                 kwargs[:polarisation] = view(nodevalues(CutSolution_P[1], Identity),:,:)
             end
-            ExtendableGrids.writeVTK(target_folder_cut * "uniform_cut_$(cut_level)_data.vtu", xgrid_uni; kwargs...)
+            ExtendableGrids.writeVTK(target_folder_cut_level * "uniform_cut_$(cut_level)_data.vtu", xgrid_uni; kwargs...)
            
 
             ## replacing NaN with 1e30 so that min/max calculation works
@@ -771,7 +775,7 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
             ## write material map into txt files
             for c = 1 : 6
                 @info "Writing strain distribution file for e$(component_names[c])..."
-                filename_eAB = target_folder_cut * 'e' * component_names[c] * ".dat"
+                filename_eAB = target_folder_cut_level * 'e' * component_names[c] * ".dat"
                 io = open(filename_eAB, "w")
                 #@printf(io, "%s\n", component_names[c])
                 for n = 1 : nnodes_uni
@@ -779,7 +783,7 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
                 end
                 close(io)
                 @info "Writing elastic strain distribution file for e_elastic$(component_names[c])..."
-                filename_eAB = target_folder_cut * 'e' * component_names[c] * "_elastic.dat"
+                filename_eAB = target_folder_cut_level * 'e' * component_names[c] * "_elastic.dat"
                 io = open(filename_eAB, "w")
                 #@printf(io, "%s\n", component_names[c])
                 for n = 1 : nnodes_uni
@@ -828,32 +832,32 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
                 end
                 scalarplot(xgrid_uni, view(CutSolution_u.entries,1:nnodes_uni), Plotter = Plotter; flimits = (uxmin,uxmax), title = "ux on cut", fignumber = 1)
                 if isdefined(Plotter,:savefig)
-                    Plotter.savefig(target_folder_cut * "uniform_cut_$(cut_level)_ux.png")
+                    Plotter.savefig(target_folder_cut_level * "uniform_cut_$(cut_level)_ux.png")
                 end
                 scalarplot(xgrid_uni, view(CutSolution_u.entries,nnodes_uni+1:2*nnodes_uni), Plotter = Plotter; flimits = (uymin,uymax), title = "uy on cut", fignumber = 1)
                 if isdefined(Plotter,:savefig)
-                    Plotter.savefig(target_folder_cut * "uniform_cut_$(cut_level)_uy.png")
+                    Plotter.savefig(target_folder_cut_level * "uniform_cut_$(cut_level)_uy.png")
                 end
                 scalarplot(xgrid_uni, view(CutSolution_u.entries,2*nnodes_uni+1:3*nnodes_uni), Plotter = Plotter; flimits = (uzmin,uzmax), title = "uz on cut", fignumber = 1)
                 if isdefined(Plotter,:savefig)
-                    Plotter.savefig(target_folder_cut * "uniform_cut_$(cut_level)_uz.png")
+                    Plotter.savefig(target_folder_cut_level * "uniform_cut_$(cut_level)_uz.png")
                 end
                 if length(Solution) > 1
                     scalarplot(xgrid_uni, CutSolution_P.entries, Plotter = Plotter; flimits = (Pmin,Pmax), title = "Polarisation on cut", fignumber = 1)
                     if isdefined(Plotter,:savefig)
-                        Plotter.savefig(target_folder_cut * "uniform_cut_$(cut_level)_P.png")
+                        Plotter.savefig(target_folder_cut_level * "uniform_cut_$(cut_level)_P.png")
                     end
                 end
                 for k = 1 : 6
                     scalarplot(xgrid_uni, view(CutSolution_ϵu.entries,(k-1)*nnodes_uni+1:k*nnodes_uni), Plotter = Plotter; flimits = (ϵmin[k],ϵmax[k]), title = "ϵ_$(component_names[k]) on cut", fignumber = 1)
                     if isdefined(Plotter,:savefig)
-                        Plotter.savefig(target_folder_cut * "uniform_cut_$(cut_level)_ϵ$(component_names[k]).png")
+                        Plotter.savefig(target_folder_cut_level * "uniform_cut_$(cut_level)_ϵ$(component_names[k]).png")
                     end
                 end
                 for k = 1 : 6
                     scalarplot(xgrid_uni, view(CutSolution_ϵu_elastic.entries,(k-1)*nnodes_uni+1:k*nnodes_uni), Plotter = Plotter; flimits = (ϵmin_elastic[k],ϵmax_elastic[k]), title = "ϵ_$(component_names[k]) on cut", fignumber = 1)
                     if isdefined(Plotter,:savefig)
-                        Plotter.savefig(target_folder_cut * "uniform_cut_$(cut_level)_ϵ_elastic$(component_names[k]).png")
+                        Plotter.savefig(target_folder_cut_level * "uniform_cut_$(cut_level)_ϵ_elastic$(component_names[k]).png")
                     end
                 end
             end
