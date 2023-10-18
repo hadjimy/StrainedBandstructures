@@ -17,7 +17,7 @@ using ExtendableSparse
 # configure Watson
 @quickactivate "NanoWiresJulia" # <- project name
 # set parameters that should be included in filename
-watson_accesses = ["scale", "latmis", "femorder", "full_nonlin", "nrefs", "strainm", "mb", "grid_type", "bc", "mstruct","stressor_x"]
+watson_accesses = ["scale", "latmis", "femorder", "full_nonlin", "nrefs", "strainm", "mb", "hz", "grid_type", "bc", "mstruct","stressor_x"]
 watson_allowedtypes = (Real, String, Symbol, Array, DataType)
 watson_datasubdir = "bimetal_watson"
 
@@ -65,9 +65,10 @@ function get_defaults()
         "full_nonlin" => true,                          # use complicated model (ignored if linear strain is used)
         "use_emb" => true,                              # use embedding (true) or damping (false) solver ?
         "nsteps" => 4,                                  # number of embedding steps in embedding solver
-        "maxits" => 15,                                 # max number of iteration in each embedding step
+        "maxits" => 20,                                 # max number of iteration in each embedding step
         "tres" => 1e-12,                                # target residual in each embedding step
         "mb" => 0.5,                                    # share of material A vs. material B
+        "hz" => 50,                                     # lenght in nn between z cuts
         "femorder" => 2,                                # order of the finite element discretisation
         "upscaling" => 0,                               # upscaling of results (does so many extra nrefs for plots)
         "nrefs" => 1,                                   # number of uniform refinements before solve
@@ -77,7 +78,7 @@ function get_defaults()
         "bc" => "robin",                                # boundary conditions: robin (Dirichlet and/or Newmann), periodic
         "scenario" => 1,                                # scenario number that fixes materials for core/stressor (1: default, no specific material, 2: semiconductor materials)
         "stressor_x" => 0.5,                            # x value for x-dependent stressor material
-        "mstruct" => ZincBlende111,                     # material structure type
+        "mstruct" => ZincBlende001,                     # material structure type
         "strainm" => NonlinearStrain3D,                 # strain model
     )
     #dim = length(params["scale"])
@@ -86,7 +87,6 @@ function get_defaults()
 end
 function set_params!(d; kwargs)
     for (k,v) in kwargs
-        @info "setting $((k,v))"
         d[String(k)]=v
     end
     #d["strainm"] = length(d["scale"]) == 2 ? NonlinearStrain2D : NonlinearStrain3D
@@ -147,8 +147,8 @@ function run_single(d = nothing; force::Bool = false, generate_vtk = true, Plott
     misfit_strain, fulld["α"] = get_lattice_mismatch_bimetal(avgc, [scale[1] * mb, scale[1] * (1 - mb)], lc)
     # fulld["misfit_strain"] = [[misfit_strain[1],misfit_strain[1],-2*misfit_strain[1]*MD.data[1].ElasticConstants["C12"]/MD.data[1].ElasticConstants["C11"]],
     #                            [misfit_strain[2],misfit_strain[2],-2*misfit_strain[2]*MD.data[2].ElasticConstants["C12"]/MD.data[2].ElasticConstants["C11"]]]
-    # fulld["misfit_strain"] = [misfit_strain[1]*ones(Float64,3), misfit_strain[2]*ones(Float64,3)]
-    fulld["misfit_strain"] = [[0.,0.,0],[0.021986187362812704,0.021986187362812704,0.021986187362812704]]
+    fulld["misfit_strain"] = [misfit_strain[1]*ones(Float64,3), misfit_strain[2]*ones(Float64,3)]
+    #fulld["misfit_strain"] = [[0.,0.,0],[0.021986187362812704,0.021986187362812704,0.021986187362812704]]
     @info fulld["misfit_strain"]
     @info fulld["α"]
 
@@ -173,7 +173,7 @@ end
 function main(d::Dict; Plotter = Plotter, verbosity = 0)
 
     ## unpack paramers
-    @unpack scenario, linsolver, latmis, misfit_strain, α, full_nonlin, use_emb, nsteps, maxits, tres, scale, mb, femorder, nrefs, strainm, avgc, grid_type, bc = d
+    @unpack scenario, linsolver, latmis, misfit_strain, α, full_nonlin, use_emb, nsteps, maxits, tres, scale, mb, hz, femorder, nrefs, strainm, avgc, grid_type, bc = d
     
     ## set log level
     set_verbosity(verbosity)
@@ -201,7 +201,7 @@ function main(d::Dict; Plotter = Plotter, verbosity = 0)
         @info μ
 
         d["E"] = μ .* (3 .* λ .+ 2 .* μ) ./ (μ .+ λ)
-        d["ν"] = λ ./ (2 .* (λ .+  μ))
+        d["ν"] = λ ./ (2 .* (λ .+ μ))
     else
         @error "scenario not defined"
     end
@@ -217,8 +217,7 @@ function main(d::Dict; Plotter = Plotter, verbosity = 0)
             #xgrid = uniform_refine(xgrid,nrefs)
             #xgrid = bimetal_tensorgrid(; scale = scale, nrefs = nrefs, material_border = mb); dirichlet_regions = [3,4]
 
-            #xgrid, xgrid_cross_section = bimetal_tensorgrid_uniform(; scale = scale, nrefs = nrefs, material_border = mb); dirichlet_regions = [7,8]
-            xgrid = bimetal_tensorgrid_uniform!(; scale = scale, nrefs = nrefs, material_border = mb); dirichlet_regions = [7,8]
+            xgrid, xgrid_cross_section = bimetal_tensorgrid_uniform(; scale = scale, nrefs = nrefs, material_border = mb, hz = hz); dirichlet_regions = [7,8]
 
         elseif grid_type == "condensator"
             xgrid = condensator3D(; scale = scale, d = 10, nrefs = nrefs); dirichlet_regions = [1,2,5,6] # core sides and bottoms
@@ -323,13 +322,39 @@ function main(d::Dict; Plotter = Plotter, verbosity = 0)
     end
     @show Problem
 
-    if use_emb
-        Solution, residual = solve_by_embedding!(Solution, Problem, xgrid, emb, nsteps = [nsteps],
-        linsolver = linsolver, FETypes = FETypes, target_residual = [tres], maxiterations = [maxits], damping = damping)
+    # if use_emb
+    #     Solution, residual = solve_by_embedding!(Solution, Problem, xgrid, emb, nsteps = [nsteps],
+    #     linsolver = linsolver, FETypes = FETypes, target_residual = [tres], maxiterations = [maxits], damping = damping)
+    # else
+    #     energy = get_energy_integrator(stress_tensor, strainm, α; dim = dim)
+    #     Solution, residual = solve_by_damping!(Solution, Problem, xgrid, energy; FETypes = FETypes, linsolver = linsolver, target_residual = tres, maxiterations = maxits)
+    # end
+
+
+    if scenario == 1
+        DisplacementOperator = PDEDisplacementOperator([IsotropicElasticityTensor(λ[1], μ[1], dim),IsotropicElasticityTensor(λ[2], μ[2], dim)], strainm, misfit_strain, α, emb, 3) #get_displacement_operator_new(MD.TensorC, strainm, eps0, a; dim = 3, emb = parameters, regions = 1:nregions, bonus_quadorder = quadorder_D)
+    elseif scenario == 2
+        k0 = 8.854e-3 # 8.854e-12 C/(V m) = 1e9*8.854e-12 C/(V nm)
+        kr::Array{Float64,1} = [MD.data[1].kappar, MD.data[2].kappar, MD.data[end].kappar]
+        DisplacementOperator = PDEDisplacementOperator(MD.TensorC, strainm, misfit_strain, α, emb, 3) #get_displacement_operator_new(MD.TensorC, strainm, eps0, a; dim = 3, emb = parameters, regions = 1:nregions, bonus_quadorder = quadorder_D)
+        PolarisationOperator = PDEPolarisationOperator(MD.TensorE, strainm, misfit_strain, k0 * kr, 3)
     else
-        energy = get_energy_integrator(stress_tensor, strainm, α; dim = dim)
-        Solution, residual = solve_by_damping!(Solution, Problem, xgrid, energy; FETypes = FETypes, linsolver = linsolver, target_residual = tres, maxiterations = maxits)
+        @error "scenario not defined"
     end
+
+    Solution, residual = solve_lowlevel(xgrid,
+                                Problem.BoundaryOperators,
+                                Problem.GlobalConstraints,
+                                DisplacementOperator,
+                                nothing,
+                                emb;
+                                linsolver = linsolver,
+                                nsteps = [nsteps, 1],
+                                FETypes = FETypes,
+                                target_residual = [tres, tres],
+                                solve_polarisation = false,
+                                coupled = false,
+                                maxiterations = [maxits, 1])
 
     return Solution, residual
 end
@@ -445,6 +470,7 @@ function postprocess(;
     scales = [[50, 2000], [100, 2000]],
     maxlc = [0.1, 0.2],
     nrefs = 1,
+    hz = 50,
     mb = 0.5,
     femorder = "max",
     strainm = length(scales[1]) == 3 ? NonlinearStrain3D : NonlinearStrain2D,
@@ -469,6 +495,7 @@ function postprocess(;
         scale = scales[j]
         df = filter(:scale => ==(scale), alldata)
         df = filter(:nrefs => ==(nrefs), df)
+        df = filter(:hz => ==(hz), df)
         df = filter(:mb => ==(mb), df)
         df = filter(:strainm => ==(strainm), df)
         df = filter(:latmis => <=(maxlc[j]), df)
@@ -490,8 +517,9 @@ function postprocess(;
             solution = data[:solution]
             scale = data[:scale]
             # misfit_strain = data[:misfit_strain]
-            ## compute bending statistics (todo: check curvature formula in 3D)
-            angle, curvature, dist_bend, farthest_point = compute_statistics(solution[1].FES.xgrid, solution[1], scale, eltype(solution[1].FES))
+            ## compute bending statistics
+            bending_axis_end_points = [[scale[1],scale[2]/2,0],[scale[1],scale[2]/2,scale[3]]]
+            angle, curvature, dist_bend, farthest_point = compute_statistics(solution[1].FES.xgrid, solution[1], bending_axis_end_points, eltype(solution[1].FES))
 
             # calculate analytic curvature (is it correct for 3D?)
             E = data[:E]
@@ -504,19 +532,25 @@ function postprocess(;
             m = h1/h2
             n = E[1]/E[2]
             analytic_curvature = abs( 6.0 * factor * (1+m)^2 / ((h1+h2) * ( 3*(1+m)^2 + (1+m*n)*(m^2+1/(m*n)))) )
-            if farthest_point[1] > 0
-                analytic_angle = asin(dist_bend/2*analytic_curvature) * 180/π
-            else
-                analytic_angle = 180 - asin(dist_bend/2*analytic_curvature) * 180/π
-            end
+            analytic_arc = scale[3]*(m^4 + 4*m*n + 6*m^2*n + 4*m^3*n + n^2 + m*(m^3 + 4*n + 3*m*n)*α[1] + n*(3*m^2 + 4*m^3 + n)*α[2])/(m^4 + 4*m*n + 6*m^2*n + 4*m^3*n + n^2)
+            analytic_arc = mod(analytic_arc,2*π/analytic_curvature)
+            analytic_angle = mod(analytic_arc*analytic_curvature/2, 2*π) * 180/π
+            # if farthest_point[3] > 0
+            #     analytic_angle = asin(dist_bend/2*analytic_curvature) * 180/π
+            # else
+            #     analytic_angle = 180 - asin(dist_bend/2*curvature) * 180/π
+            # end
             #@info "dist_bend = $(dist_bend)"
-            #@info "simulation ===> R = $(1/curvature) | curvature = $curvature | bending angle = $(angle)°"
-            #@info "analytic   ===> R = $(1/analytic_curvature) | curvature = $analytic_curvature | bending angle = $(analytic_angle)°"
+            @info "simulation ===> R = $(1/curvature) | curvature = $curvature | bending angle = $(angle)°"
+            @info "analytic   ===> R = $(1/analytic_curvature) | curvature = $analytic_curvature | bending angle = $(analytic_angle)°"
             push!(lattice_mismatch, data[:latmis])
             push!(sim_angle, angle)
             push!(ana_angle, analytic_angle)
             push!(sim_curvature, curvature)
             push!(ana_curvature, analytic_curvature)
+        end
+        for i in eachindex(sim_curvature)
+            println(sim_curvature[i])
         end
             
         @info "Plotting ..."

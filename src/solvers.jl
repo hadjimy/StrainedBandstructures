@@ -570,7 +570,7 @@ function solve_lowlevel(
         end
     end
 
-    if !coupled 
+    if !coupled && solve_polarisation
         @info "Entering decoupled polarisation solve..."
         S = FEMatrix(FES[2])       # system matrix
         rhs = FEVector(FES[2])     # system rhs

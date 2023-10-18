@@ -169,7 +169,7 @@ function main(d = nothing; verbosity = 0, Plotter = nothing, force::Bool = false
         if d["interface_refinement"] == true
             if d["cross_section"] == 1
                 refinement_width = 1/4*geometry[3]
-            elseif d["cross_section"] == 3
+            elseif d["cross_section"] == 2
                refinement_width = (geometry[3] >= 10 ? 4 : 1 + (geometry[1]+geometry[2])/25)/sqrt(3)
             elseif d["cross_section"] == 3
                 refinement_width = 1/4*geometry[2]
@@ -410,9 +410,15 @@ function postprocess(filename = nothing; watson_datasubdir = watson_datasubdir, 
     end
 
     ## compute statistics
-    @unpack solution, geometry = d
-    repair_grid!(solution[1].FES.xgrid)
-    angle, curvature, dist_bend, farthest_point = compute_statistics(solution[1].FES.xgrid, solution[1], geometry, eltype(solution[1].FES))
+    @unpack solution, geometry, cross_section, rotate = d
+
+    bending_axis_end_points = cross_section == 1 ? [[0,-(geometry[1]+geometry[2])/sqrt(3),0],[0,-(geometry[1]+geometry[2])/sqrt(3),geometry[4]]] : [[0,-(geometry[1]+geometry[2])/2,0],[0,-(geometry[1]+geometry[2])/2,geometry[4]]]
+    if rotate == true
+        bending_axis_end_points[1] = reverse(bending_axis_end_points[1], 1, 2)
+        bending_axis_end_points[2] = reverse(bending_axis_end_points[2], 1, 2)
+    end
+    @info bending_axis_end_points
+    angle, curvature, dist_bend, farthest_point = compute_statistics(solution[1].FES.xgrid, solution[1], bending_axis_end_points, eltype(solution[1].FES))
     d["angle"] = angle
     d["curvature"] = curvature
 

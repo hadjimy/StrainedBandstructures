@@ -976,58 +976,62 @@ function bimetal_tensorgrid(; scale = [1,1,1], nrefs = 1, material_border = 0.5)
 end
 
 
-function bimetal_tensorgrid_uniform(; scale = [1,1,1], nrefs = 1, material_border = 0.5)
+function bimetal_tensorgrid_uniform(; scale = [1,1,1], nrefs = 1, material_border = 0.5, hz = 50)
 
-    @info "Generating bimetal 3D grid for scale = $scale and middle interface at $material_border of height $(scale[2])"
+	W = scale[1]; H = scale[2]; Z = scale[3]
 
-    W = scale[1]
-    H = scale[2]
-    Z = scale[3]
-    h1 = round(scale[2]*material_border)
-    h2 = round(scale[2]*(1 - material_border))
-    hz_factor = 2.0^-nrefs
+    @info "Generating bimetal 3D grid for scale = $scale and middle interface at $material_border of height $H"
 
-    hx = W/4*2.0^-nrefs
-    hy = min(h1,h2)/2*2.0^-nrefs
-    hz = 25 * hz_factor
+    h1 = W*material_border
+    h2 = W-h1
+    factor = 2.0^-nrefs
 
-    XX = 0:hx:W
-    #YY = Array{Float64,1}(0:(h1-hy)/2:h1-hy)
-    #append!(YY, Array{Float64,1}(LinRange(h1-hy,h1+hy,3)[2:end-1]))
-    #append!(YY, Array{Float64,1}(h1+hy:(h2-hy)/2:H))
-    YY = 0:hx:H
+    hx = min(h1,h2)*factor
+	hy = hx
+	hz = min(hz,Z)
+
+	if nrefs == 0
+		XX = 0:hx:W
+	else
+	    XX = Array{Float64,1}(0:(h1-hx/2)*factor:h1-hx/2)
+		T = Array{Float64,1}(LinRange(h1-hx/2,h1+hx/2,5))
+        append!(XX, T[2:end-1])
+        append!(XX, Array{Float64,1}(h1+hx/2:(W-(h1+hx/2))*factor:W))
+	end
+    YY = 0:hy:H
     ZZ = Array{Float64,1}(0:hz:Z)
 
     xgrid = simplexgrid(XX,YY)
+
+	# assigning region numbers: core region = 1, stressor region = 2
+    cellmask!(xgrid,[h1,0],[W,H],1)
+	cellmask!(xgrid,[0,0],[h1,H],2)
+
     xgrid_cross_section = deepcopy(xgrid)
     xgrid = simplexgrid(xgrid, ZZ)
-    xgrid = uniform_refine(xgrid,nrefs)
+    xgrid = uniform_refine(xgrid,nrefs-1)
     # the offsets lead to the following boundary regions:
-    # 1 - 6 = sides core & bottom
+    # 1 - 6 = sides core & stressor
     # 7 = bottom core
     # 8 = bottom stressor
     # 9 = top core
     # 10 = top stressor
 
-    # assigning region numbers: core region = 1, stressor region = 2
-    cellmask!(xgrid,[0,0,0],[W,h1,Z],1)
-    cellmask!(xgrid,[0,h1,0],[W,H,Z],2)
-
     # boundary faces
-    bfacemask!(xgrid,[0,0,0],[W,h1,Z],1)  # side core left
-    bfacemask!(xgrid,[0,h1,0],[0,H,Z],2)  # side stressor left
-    bfacemask!(xgrid,[0,H,0],[W,H,Z],3)   # side stressor
-    bfacemask!(xgrid,[W,0,0],[W,h1,Z],4)  # side core right
-    bfacemask!(xgrid,[W,h1,0],[W,H,Z],5)  # side stressor right
-    bfacemask!(xgrid,[0,0,0],[W,0,Z],6)   # side core
-    bfacemask!(xgrid,[0,0,0],[W,h1,0],7)  # bottom core
-    bfacemask!(xgrid,[0,h1,0],[W,H,0],8)  # bottom stressor
-    bfacemask!(xgrid,[0,0,Z],[W,h1,Z],9)  # top core
-    bfacemask!(xgrid,[0,h1,Z],[W,H,Z],10) # top stressor
+    bfacemask!(xgrid,[W,0,0],[W,H,Z],1)   # side core
+    bfacemask!(xgrid,[h1,0,0],[W,0,Z],2)  # side core left
+    bfacemask!(xgrid,[0,0,0],[h1,0,Z],3)  # side stressor right
+    bfacemask!(xgrid,[0,0,0],[0,H,Z],4)   # side stressor
+    bfacemask!(xgrid,[0,H,0],[h1,H,Z],5)  # side stressor left
+    bfacemask!(xgrid,[h1,H,0],[W,H,Z],6)  # side core left
+    bfacemask!(xgrid,[h1,0,0],[W,H,0],7)  # bottom core
+    bfacemask!(xgrid,[0,0,0],[h1,H,0],8)  # bottom stressor
+    bfacemask!(xgrid,[h1,0,Z],[W,H,Z],9)  # top core
+    bfacemask!(xgrid,[0,0,Z],[h1,H,Z],10) # top stressor
 
     return xgrid, xgrid_cross_section
-
 end
+
 
 function bimetal_tensorgrid_uniform!(; scale = [1,1,1], nrefs = 1, material_border = 0.5)
 
@@ -1040,23 +1044,19 @@ function bimetal_tensorgrid_uniform!(; scale = [1,1,1], nrefs = 1, material_bord
     h2 = round(scale[2]*(1 - material_border))
     hz_factor = 2.0^-nrefs
 
-    hx = W # W/4*2.0^-nrefs
-    hy = H/2 # min(h1,h2)/2*2.0^-nrefs
-    hz = 50 # 100 * hz_factor
+    hx = W/4*2.0^-nrefs
+    hy = min(h1,h2)*2.0^-nrefs
+    hz = 100 * hz_factor
 
     XX = 0:hx:W
     #YY = Array{Float64,1}(0:(h1-hy)/2:h1-hy)
     #append!(YY, Array{Float64,1}(LinRange(h1-hy,h1+hy,3)[2:end-1]))
     #append!(YY, Array{Float64,1}(h1+hy:(h2-hy)/2:H))
-	YY = 0:hy:H
+    YY = 0:hy:H
     ZZ = Array{Float64,1}(0:hz:Z)
 
-    xgrid = simplexgrid(YY,XX)
+    xgrid = simplexgrid(XX,YY)
     xgrid_cross_section = deepcopy(xgrid)
-	coords = deepcopy(xgrid[Coordinates])
-	xgrid[Coordinates][1,:] = -coords[2,:]
-	xgrid[Coordinates][2,:] = coords[1,:]
-	xgrid[Coordinates][1,:] .+= W
     xgrid = simplexgrid(xgrid, ZZ)
     xgrid = uniform_refine(xgrid,nrefs)
     # the offsets lead to the following boundary regions:
@@ -1161,13 +1161,15 @@ function nanowire_tensorgrid_mirror(; scale = [1,1,1,1], shape = 1,
         bfacemask!(xgrid,[-(d2+2/sqrt(3)*δ),0],[d2+2/sqrt(3)*δ,0],0)
     end
 
-    # rotate grid 90 degrees clockwise
-    if rotate == true
-        xgrid_rotated=deepcopy(xgrid)
-        xgrid_rotated[Coordinates][1,:] = xgrid[Coordinates][2,:]
-        xgrid_rotated[Coordinates][2,:] = -xgrid[Coordinates][1,:]
-        xgrid = deepcopy(xgrid_rotated)
-    end
+    # clockwise grid rotation by angle θ
+	θ = rotate * pi/180
+	xgrid_rotated = deepcopy(xgrid)
+	xgrid_rotated[Coordinates][1,:] = cos(θ)*xgrid[Coordinates][1,:] +
+		sin(θ)*xgrid[Coordinates][2,:]
+	xgrid_rotated[Coordinates][2,:] = -sin(θ)*xgrid[Coordinates][1,:] +
+		cos(θ)*xgrid[Coordinates][2,:]
+	xgrid = deepcopy(xgrid_rotated)
+	repair_grid!(xgrid)
 
     # save cross-section grid
     xgrid_cross_section=deepcopy(xgrid)
