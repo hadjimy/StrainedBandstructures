@@ -1,6 +1,7 @@
 module NanoWiresJulia
 
-using GradientRobustMultiPhysics
+using ExtendableFEM
+using ExtendableFEMBase
 using ExtendableGrids
 using ExtendableSparse
 using GridVisualize

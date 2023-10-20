@@ -326,7 +326,7 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
     ## find three points on the plane z = cut_level and evaluate displacement at points of plane
     xref = [zeros(Float64,3),zeros(Float64,3),zeros(Float64,3)]
     cells = zeros(Int,3)
-    PE = PointEvaluator(Solution[1], Identity)
+    PE = PointEvaluator([id(1)], Solution)
     CF = CellFinder(xgrid)
     plane_equation_coeffs = zeros(Float64,4)
 
@@ -641,20 +641,20 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
             end
 
             #interpolate ϵ0 onto uniform grid
-            interpolate!(eps0_fefunc_uni[1], eps0_fefunc_orig[1]; xtrafo = xtrafo!, start_cell = start_cell, not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
+            lazy_interpolate!(eps0_fefunc_uni[1], eps0_fefunc_orig, [id(1)]; xtrafo = xtrafo!, start_cell = start_cell, not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
 
             # evaluate u on deformed mesh
             # 2D coordinates on uniform cut mesh need to be transformed to 3D coordinates in displaced 3D grid by xtrafo
-            interpolate!(CutSolution_u[1], Solution[1]; xtrafo = xtrafo!, start_cell = start_cell, not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
+            lazy_interpolate!(CutSolution_u[1], Solution, [id(1)]; xtrafo = xtrafo!, start_cell = start_cell, not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
 
             ## evaluate ∇u on deformed mesh
             ## since we interpolate on faces of tetrahedrons wehere the gradient jumps
             ## we evaluate on both sides of the faces and take some averaging
             ## to ensure that the interpolate! functions evaluates on the correct side
             ## we add some negative and positive offset to the z coordinate and call the interpolate! two times
-            interpolate!(CutSolution_∇u[1], DisplacementGradient[1]; start_cell = start_cell, xtrafo = xtrafo!, not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
+            lazy_interpolate!(CutSolution_∇u[1], DisplacementGradient, [id(1)]; start_cell = start_cell, xtrafo = xtrafo!, not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
             if length(Solution) > 1
-                interpolate!(CutSolution_P[1], Solution[2]; start_cell = start_cell, xtrafo = xtrafo!, not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
+                lazy_interpolate!(CutSolution_P[1], Solution, [id(2)]; start_cell = start_cell, xtrafo = xtrafo!, not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
             end
 
             ## postprocess gradient to gradients on undisplaced mesh
@@ -940,8 +940,8 @@ function perform_plane_cuts(target_folder_cut, Solution, plane_points, cut_level
         CutSolution_∇u = FEVector{Float64}("∇u (on 2D cut at z = $(cut_level))", FES2D_∇u)
         CutSolution_ϵu = FEVector{Float64}("ϵ(u) (on 2D cut at z = $(cut_level))", FES2D_ϵ)
         CutSolution_P = FEVector{Float64}("P (on 2D cut at z = $(cut_level))", FES2D_P)
-        @time interpolate!(CutSolution_u[1], Solution[1]; xtrafo = xtrafo!, start_cell = start_cell, not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
-        @time interpolate!(CutSolution_∇u[1], Solution[1]; operator = Gradient, xtrafo = xtrafo!, start_cell = start_cell, not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
+        @time lazy_interpolate!(CutSolution_u[1], Solution, [id(1)]; xtrafo = xtrafo!, start_cell = start_cell, not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
+        @time lazy_interpolate!(CutSolution_∇u[1], Solution, [grad(1)]; xtrafo = xtrafo!, start_cell = start_cell, not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
           
         ## calculate strain from gradient interpolation on cut
         nodevals = nodevalues(CutSolution_∇u[1], Identity)
@@ -960,7 +960,7 @@ function perform_plane_cuts(target_folder_cut, Solution, plane_points, cut_level
             end
         end
         if length(Solution) > 1
-            @time interpolate!(CutSolution_P[1], Solution[2]; xtrafo = xtrafo!, start_cell = start_cell, not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
+            @time lazy_interpolate!(CutSolution_P[1], Solution, [id(2)]; xtrafo = xtrafo!, start_cell = start_cell, not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
         end
 
         ## write data into csv file

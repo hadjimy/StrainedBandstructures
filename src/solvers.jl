@@ -1,201 +1,6 @@
-
-## solves the problem by parameter embedding
-## idea: multiply difficult parts of the operators by an embedding parameter
-##       solver starts by setting these parameters to zero and then uses this solution as initial guesses for
-##       reassembled problem with increased parameters, repeated for nsteps until desired parameters are reached
-function solve_by_embedding(
-            Problem,                                        # problem description
-            xgrid::ExtendableGrid{Tv,Ti},                   # grid
-            emb_params;                                     # embedding parameters (operators must depend on them!)
-            FETypes = [H1P1{size(xgrid[Coordinates],1)}],   # FETypes (default: P1)
-            linsolver = "UMFPACK",                          # change solver (e.g. "MKLPARDISO", "UMFPACK", or any ExtendableSparse.LUFactorization)
-            nsteps = ones(Int,length(FETypes)),             # number of embedding steps (parameters are scaled by nsteps equidistant steps within 0:1)
-            subiterations = [1:length(FETypes)],            # maximal iterations in each embedding step
-            damping = 0,                                    # damping in Newton iteration
-            target_residual = 1e-12*ones(Int,length(FETypes)),
-            maxiterations = 20*ones(Int,length(FETypes))) where {Tv,Ti}
-
-    @info "solver = $linsolver"
-    ## discretise the problem
-    ## create finite element space (FESpace) and solution vector (FEVector)
-    ## generate FESpace and FEVector for discretisation
-    FES = Array{FESpace{Tv,Ti},1}(undef, length(FETypes))
-    for j = 1 : length(FETypes)
-        FES[j] = FESpace{FETypes[j]}(xgrid)
-    end
-    Solution = FEVector(FES)
-
-    ## prepare parameter embedding
-    emb_params_target = deepcopy(emb_params)
-    if sum(emb_params_target) == 0.
-        nsteps .= 1
-        @warn "all emb_params_target == 0, reducing nsteps to 1"
-    end
-
-    residual::Float64 = 0
-    for s = 1 : length(subiterations)
-        for j = 1 : nsteps[s]
-            emb_params .= nsteps[s] == 1 ? emb_params_target : (j-1)/(nsteps[s]-1) .* emb_params_target
-
-            ## solve by GradientRobustMultiPhysics standard fixed-point solver
-            println("Solving problem with parameter emb_params = $emb_params (embedding step $j/$(nsteps[s]))...")
-            residual = solve!(Solution, Problem; subiterations = subiterations[s], show_statistics = true, damping = damping, linsolver = linsolver, maxiterations = maxiterations[s], target_residual = target_residual[s])
-        end
-    end
-
-    return Solution, residual
-end
-
-function solve_by_embedding!(
-    Solution,
-    Problem,                                        # problem description
-    xgrid::ExtendableGrid{Tv,Ti},                   # grid
-    emb_params;                                     # embedding parameters (operators must depend on them!)
-    FETypes = [H1P1{size(xgrid[Coordinates],1)}],   # FETypes (default: P1)
-    linsolver = "UMFPACK",                          # change solver (e.g. "MKLPARDISO", "UMFPACK", or any ExtendableSparse.LUFactorization)
-    nsteps = ones(Int,length(FETypes)),             # number of embedding steps (parameters are scaled by nsteps equidistant steps within 0:1)
-    subiterations = [1:length(FETypes)],            # maximal iterations in each embedding step
-    damping = 0,                                    # damping in Newton iteration
-    target_residual = 1e-12*ones(Int,length(FETypes)),
-    maxiterations = 20*ones(Int,length(FETypes))) where {Tv,Ti}
-
-@info "solver = $linsolver"
-
-## prepare parameter embedding
-emb_params_target = deepcopy(emb_params)
-if sum(emb_params_target) == 0.
-nsteps .= 1
-@warn "all emb_params_target == 0, reducing nsteps to 1"
-end
-
-residual::Float64 = 0
-for s = 1 : length(subiterations)
-for j = 1 : nsteps[s]
-    emb_params .= nsteps[s] == 1 ? emb_params_target : (j-1)/(nsteps[s]-1) .* emb_params_target
-
-    ## solve by GradientRobustMultiPhysics standard fixed-point solver
-    println("Solving problem with parameter emb_params = $emb_params (embedding step $j/$(nsteps[s]))...")
-    residual = solve!(Solution, Problem; subiterations = subiterations[s], show_statistics = true, damping = damping, linsolver = linsolver, maxiterations = maxiterations[s], target_residual = target_residual[s])
-end
-end
-
-return Solution, residual
-end
-
-
-
-## solves the problem by criterion-dependent damping
-## idea: damp each Newton iteration if descent criterions are not satisfied
-##       two criterions are available:
-##          - use_energy_decrease_criterion (requires that energy decreases)
-##          - use_residual_decrease_criterion (requires that nonlinear residual ≈ derivative of energy decreases)
-## 
-## (first criterion requires an energy integrator that should match the implemented operators)
-function solve_by_damping(
-            Problem,                                            # problem description
-            xgrid::ExtendableGrid{Tv,Ti},                       # grid
-            linsolver = "UMFPACK",                              # change solver (e.g. "MKLPARDISO", "UMFPACK", or any ExtendableSparse.LUFactorization)
-            EIntegrator = nothing;                              # energy integrator
-            FETypes = [H1P1{size(xgrid[Coordinates],1)}],       # FETypes (default: P1)
-            target_residual = 1e-12,                            # target residual
-            use_energy_decrease_criterion = true,               # damping step is accepted if energy decreases
-            use_residual_decrease_criterion = false,            # damping step is accepted if nonlinear residual decreases
-            use_or = true,                                      # it is enough when one of the criterions above is satisfied
-            damping_step = 0.05,                                # checks damping values within the range 0:damping_step:1
-            maxiterations = 100) where {Tv,Ti}                  # maximal iterations
-
-    ## generate solution vector
-    FES = Array{FESpace{Tv,Ti},1}(undef, length(FETypes))
-    for j = 1 : length(FETypes)
-        FES[j] = FESpace{FETypes[j]}(xgrid)
-    end
-    Solution = FEVector(FES)
-    subiterations = [1:length(FETypes)]
-
-    #############################
-    ### DAMPING CONFIGURATION ###
-    #############################
-
-    TestVector = deepcopy(Solution)
-    min_energy::Array{Float64,1} = [1e30,1e30]
-    energy::Array{Float64,1} = [0.0,0.0]
-    b = FEVector{Float64}("DI",Solution[1].FES)
-    damping_guesses = [1.0]
-    append!(damping_guesses,0.0:damping_step:0.99)
-
-    @assert use_energy_decrease_criterion || EIntegrator === nothing "need an energy integrator"
-    
-    function get_damping(old_iterate,newton_iterate, fixed_dofs)
-
-        ## this function tries damping factors in 0.1 steps and
-        ## takes the smallest one that satsfies criterions
-
-        min_energy .= [1e30,1e30]
-
-        println("                    DAMPING |    ENERGY    NL-RESIDUAL | ACCEPTED?")
-        for damping::Float64 in damping_guesses
-            for j = 1 : length(TestVector[1])
-                TestVector[1][j] = damping * old_iterate[1][j] + (1 - damping) * newton_iterate[1][j]
-            end
-
-            if use_energy_decrease_criterion
-                energy[1] = evaluate(EIntegrator, TestVector[1])
-            end
-            if use_residual_decrease_criterion # todo : make more general
-                fill!(b.entries,0)
-                for o = 1 : length(Problem.RHSOperators[1])
-                    eval_assemble!(b[1],Problem.RHSOperators[1][o],TestVector)
-                end
-                for dof in fixed_dofs
-                    if dof <= length(b.entries)
-                        b.entries[dof] = 0
-                    end
-                end
-                energy[2] = sqrt(sum(b.entries.^2))
-            end
-            if damping == 1.0 # save values to beat
-                min_energy[1] = energy[1]
-                min_energy[2] = energy[2]
-                @printf("                      %.2f  | %.6e  %.4e | (values to beat)\n", damping, energy[1], energy[2])
-            else
-                criterion1_satisfied = energy[1] < min_energy[1]
-                criterion2_satisfied = energy[2] < min_energy[2]
-                if !use_energy_decrease_criterion
-                    criterion1_satisfied = true
-                end
-                if !use_residual_decrease_criterion
-                    criterion2_satisfied = true
-                end
-                @printf("                      %.2f  | %.6e  %.4e | %s %s\n", damping, energy[1], energy[2], criterion1_satisfied, criterion2_satisfied)
-                if use_or && criterion1_satisfied && use_energy_decrease_criterion
-                    criterion2_satisfied = true
-                end
-                if use_or && criterion2_satisfied && use_residual_decrease_criterion
-                    criterion1_satisfied = true
-                end
-                if criterion1_satisfied * criterion2_satisfied
-                    return damping
-                end
-            end
-        end
-
-        @warn "could not find a damping factor that satisfies criterions, taking damping = 0"
-        return 0
-    end
-    
-    ## solve
-    println("Solving by damping...")
-    residual = solve!(Solution, Problem; linsolver = linsolver, subiterations = subiterations, target_residual = target_residual, maxiterations = maxiterations, damping = get_damping)
-
-    return Solution, residual
-end
-
-
-
 function solve_lowlevel(
     xgrid::ExtendableGrid,                          # grid
     boundary_conditions,                            # Array of BoundaryData for each unknown
-    global_constraints,                             # Array of lgobal constraints (like periodic dofs, fixed integral means)
     displacement_operator,                          # Operator for displacement
     polarisation_operator,                          # Operator for polarisation
     emb_params;                                     # embedding parameters (operators must depend on them!)
@@ -253,14 +58,14 @@ function solve_lowlevel(
     ndofs_u::Int = get_ndofs(ON_CELLS, FETypes[1], EG)      # displacement
     ∇u::FEEvaluator{Float64} = FEEvaluator(FES[1], Gradient, qf)
     vals_∇u::Array{Float64,3} = ∇u.cvals
-    celldofs_u::Matrix{Int32} = Matrix(FES[1][GradientRobustMultiPhysics.CellDofs])
+    celldofs_u::Matrix{Int32} = Matrix(FES[1][CellDofs])
     indices_∇u = 1:size(vals_∇u, 1)
 
     if solve_polarisation # polarisation
         ndofs_P::Int = get_ndofs(ON_CELLS, FETypes[2], EG)  
         ∇P::FEEvaluator{Float64} = FEEvaluator(FES[2], Gradient, qf)
         vals_∇P::Array{Float64,3} = ∇P.cvals
-        celldofs_P::Matrix{Int32} = Matrix(FES[2][GradientRobustMultiPhysics.CellDofs])
+        celldofs_P::Matrix{Int32} = Matrix(FES[2][CellDofs])
         indices_∇P = 1:size(vals_∇P, 1)
     end
 
@@ -276,15 +81,15 @@ function solve_lowlevel(
     end
 
     ## prepare automatic differentation of displacement operator
-    dim = displacement_operator.dim
+    dim = size(xgrid[Coordinates],1)
     if solve_polarisation
         @assert dim == polarisation_operator.dim
     end
     argsizes_displacement = [dim^2,dim^2,Int(dim^2+dim*(dim+1)/2)]
     argsizes_polarisation = [dim,dim+dim^2,Int(dim+dim^2+dim*(dim+1)/2)]
-    item_information::Array{Ti,1} = ones(Ti,3)
-    displacement_operator4region(r) = (result,input) -> displacement_operator(result,input,r)
-    polarisation_operator4region(r) = (result,input) -> polarisation_operator(result,input,r)
+    QP = QPInfos(xgrid)
+    displacement_operator4qp = (result,input) -> displacement_operator(result,input,QP)
+    polarisation_operator4qp = (result,input) -> polarisation_operator(result,input,QP)
     result_displacement::Array{Float64,1} = Vector{Float64}(undef,argsizes_displacement[1])
     input_displacement::Array{Float64,1} = Vector{Float64}(undef,argsizes_displacement[3])
     Dresult_displacement = DiffResults.JacobianResult(result_displacement,input_displacement)
@@ -293,16 +98,16 @@ function solve_lowlevel(
     Dresult_polarisation = DiffResults.JacobianResult(result_polarisation,input_polarisation)
 
     if (use_sparsity_detection)
-        sparsity_pattern = Symbolics.jacobian_sparsity(displacement_operator4region(item_information),result_displacement,input_displacement)
+        sparsity_pattern = Symbolics.jacobian_sparsity(displacement_operator4qp,result_displacement,input_displacement)
         jac = Float64.(sparse(sparsity_pattern))
         colors = matrix_colors(jac) 
-        cfg_displacement = ForwardColorJacCache(displacement_operator4region(item_information),input_displacement,nothing;
+        cfg_displacement = ForwardColorJacCache(displacement_operator4qp,input_displacement,nothing;
                 dx = nothing,
                 colorvec = colors,
                 sparsity = nothing)
     else
-        cfg_displacement = ForwardDiff.JacobianConfig(displacement_operator4region(item_information), result_displacement, input_displacement, ForwardDiff.Chunk{argsizes_displacement[3]}())
-        cfg_polarisation = ForwardDiff.JacobianConfig(polarisation_operator4region(item_information), result_polarisation, input_polarisation, ForwardDiff.Chunk{argsizes_polarisation[3]}())
+        cfg_displacement = ForwardDiff.JacobianConfig(displacement_operator4qp, result_displacement, input_displacement, ForwardDiff.Chunk{argsizes_displacement[3]}())
+        cfg_polarisation = ForwardDiff.JacobianConfig(polarisation_operator4qp, result_polarisation, input_polarisation, ForwardDiff.Chunk{argsizes_polarisation[3]}())
     end
     jac_displacement::Array{Float64,2} = DiffResults.jacobian(Dresult_displacement)
     value_displacement::Array{Float64,1} = DiffResults.value(Dresult_displacement)
@@ -310,8 +115,8 @@ function solve_lowlevel(
     value_polarisation::Array{Float64,1} = DiffResults.value(Dresult_polarisation)
     
     ## ASSEMBLY LOOP
-    fixed_dofs = nothing
-    fixed_dofsP = nothing
+    bdofs = nothing
+    bdofsP = nothing
     eval_∇u::Array{Float64,1} = zeros(Float64, argsizes_displacement[3])
     eval_∇P::Array{Float64,1} = zeros(Float64, argsizes_polarisation[3])
     jac_displacement_view = view(jac_displacement,indices_∇u,indices_∇u)
@@ -330,10 +135,8 @@ function solve_lowlevel(
         for cell = 1 : ncells
 
             ## update FE basis evaluators
-            item_information[1] = cell
-            item_information[2] = cell
-            item_information[3] = cellregions[cell]
-            disp_op = displacement_operator4region(item_information)
+            QP.item = cell
+            QP.region = cellregions[cell]
             ∇u.citem[] = cell
             update_basis!(∇u) 
             dofs_u = view(celldofs_u, : , cell)
@@ -347,9 +150,9 @@ function solve_lowlevel(
 
                 ## evaluate jacobian of displacement tensor
                 if use_sparsity_detection
-                    forwarddiff_color_jacobian!(jac_displacement, disp_op, eval_∇u, cfg_displacement)
+                    forwarddiff_color_jacobian!(jac_displacement, displacement_operator4qp, eval_∇u, cfg_displacement)
                 else
-                    ForwardDiff.vector_mode_jacobian!(Dresult_displacement,disp_op,result_displacement,eval_∇u,cfg_displacement)
+                    ForwardDiff.vector_mode_jacobian!(Dresult_displacement,displacement_operator4qp,result_displacement,eval_∇u,cfg_displacement)
                 end
 
                 # update matrix
@@ -365,7 +168,7 @@ function solve_lowlevel(
 
                 # update rhs
                 mul!(tempV, jac_displacement_view, view(eval_∇u, indices_∇u))
-                disp_op(value_displacement, eval_∇u)
+                displacement_operator(value_displacement, eval_∇u, QP)
                 tempV .-= value_displacement
                 for j = 1 : ndofs_u
                     bU[j] += dot(tempV, view(vals_∇u,:,j,qp)) * weights[qp]
@@ -387,17 +190,19 @@ function solve_lowlevel(
         end
 
         ## apply penalties for boundary condition
-        fixed_dofs = boundarydata!(Solution[1], boundary_conditions[1])
-        for dof in fixed_dofs
+        assemble!(boundary_conditions, FES[1])
+        bdofs = boundary_conditions.bdofs
+
+        for dof in bdofs
             SE[dof,dof] = fixed_penalty
             rhs.entries[dof] = 0 # fixed_penalty * Solution.entries[dof]
             Solution.entries[dof] = 0
         end
 
-        ## apply global constraints
-        for constraint in global_constraints
-            apply_constraint!(S, rhs, constraint, Solution)
-        end
+        ### apply global constraints
+        #for constraint in global_constraints
+        #    apply_constraint!(S, rhs, constraint, Solution)
+        #end
 
         flush!(SE)
     end
@@ -532,7 +337,7 @@ function solve_lowlevel(
                 mul!(residual, SE, view(Solution[1]))
             end
             residual .-= rhs.entries
-            view(residual, fixed_dofs) .= 0
+            view(residual, bdofs) .= 0
 
             nlres = norm(residual)
             @info "         ---> nonlinear iteration $iteration, linres = $linres, nlres = $nlres, timeASSEMBLY + timeSOLVE = $time_assembly + $time_solver"
@@ -559,7 +364,7 @@ function solve_lowlevel(
                 mul!(residual, SE, view(Solution[1]))
             end
             residual .-= rhs.entries
-            view(residual, fixed_dofs) .= 0
+            view(residual, bdofs) .= 0
             linres = norm(residual)
 
             if damping > 0
