@@ -27,8 +27,8 @@ TetGen = "c5d3f3f7-f850-59f6-8a2e-ffc6dc1317ea"
 Triangulate = "f7e6ffb2-c36d-4f8f-a77e-16e897189344"
 
 [compat]
-ExtendableFEM = "^0.0.12"
-ExtendableFEMBase = "^0.0.12"
+ExtendableFEM = "^0.0.13"
+ExtendableFEMBase = "^0.0.13"
 ExtendableGrids = "^1.1.0"
 GridVisualize = "1.1.7"
 Pardiso = "0.5.3"
