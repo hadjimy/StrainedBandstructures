@@ -24,6 +24,7 @@ SparseDiffTools = "47a9eef4-7e08-11e9-0b38-333d64bd3804"
 Symbolics = "0c5d862f-8b57-4792-8d23-62f2024744c7"
 TetGen = "c5d3f3f7-f850-59f6-8a2e-ffc6dc1317ea"
 Triangulate = "f7e6ffb2-c36d-4f8f-a77e-16e897189344"
+XLSX = "fdbf4ff8-1666-58a4-91e7-1b58723a45e0"
 
 [compat]
 ExtendableGrids = "0.9.17"

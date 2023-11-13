@@ -31,6 +31,7 @@ function get_defaults()
         "shell_x" => 0.3,                               # x value for x-dependent shell material
         "stressor_x" => 0.5,                            # x value for x-dependent stressor material
         "strainm" => NonlinearStrain3D,                 # strain model
+        "estrainm" => IsotropicPrestrain,               # elastic strain model
         "full_nonlin" => true,                          # use complicated model (ignored if linear strain is used)
         "use_emb" => true,                              # use embedding (true) or damping (false) solver ?
         "nsteps" => 5,                                  # number of embedding steps in embedding solver
@@ -119,7 +120,7 @@ function main(d = nothing; verbosity = 0, Plotter = nothing, force::Bool = false
     #######################
     ### MODEL PARAMETER ###
     #######################
-    @unpack geometry, fully_coupled, full_nonlin, strainm, avgc, femorder, femorder_P, polarisation = d
+    @unpack geometry, fully_coupled, full_nonlin, strainm, estrainm, avgc, femorder, femorder_P, polarisation = d
     @assert fully_coupled == false "fully coupled model not yet implemented"
     ## setup parameter Array (which is also returned and can be used later to embedd)
     parameters::Array{Float64,1} = [full_nonlin ? 1 : 0]
@@ -210,7 +211,7 @@ function main(d = nothing; verbosity = 0, Plotter = nothing, force::Bool = false
            # add_operator!(Problem, 1, get_displacement_operator(MD.TensorC[r], strainm, eps0[r][1], a[r]; dim = 3, emb = parameters, regions = [r], bonus_quadorder = quadorder_D))
         end
     end
-    add_operator!(Problem, 1, get_displacement_operator_new(MD.TensorC, strainm, eps0, a; dim = 3, emb = parameters, regions = 1:nregions, bonus_quadorder = quadorder_D))
+    add_operator!(Problem, 1, get_displacement_operator_new(MD.TensorC, strainm, estrainm, eps0, a; dim = 3, emb = parameters, regions = 1:nregions, bonus_quadorder = quadorder_D))
 
     ## add (linear) operators for polarisation equation
     if polarisation
@@ -249,8 +250,9 @@ function main(d = nothing; verbosity = 0, Plotter = nothing, force::Bool = false
 
     ## call solver
     @unpack nsteps, tres, maxits, linsolver, use_lowlevel_solver = d
+
     if (use_lowlevel_solver)
-        DisplacementOperator = PDEDisplacementOperator(MD.TensorC, strainm, eps0, a, parameters, 3) #get_displacement_operator_new(MD.TensorC, strainm, eps0, a; dim = 3, emb = parameters, regions = 1:nregions, bonus_quadorder = quadorder_D)
+        DisplacementOperator = PDEDisplacementOperator(MD.TensorC, strainm, estrainm, eps0, a, parameters, 3) #get_displacement_operator_new(MD.TensorC, strainm, eps0, a; dim = 3, emb = parameters, regions = 1:nregions, bonus_quadorder = quadorder_D)
         PolarisationOperator = PDEPolarisationOperator(MD.TensorE, strainm, eps0, k0 * kr, 3)
         Solution, residual = solve_lowlevel(xgrid,
                                 Problem.BoundaryOperators,
@@ -364,11 +366,7 @@ function get_lattice_misfit_nanowire(lcavg_case, MD::MaterialData, geometry, ful
                 a[j] = (lc[region][j] - lc_avg[j])/lc_avg[j]
             end
 
-            if full_nonlin == false
-                eps0[region][j] = a[j]
-            else
-                eps0[region][j] = a[j] * (1 + a[j]/2)
-            end
+            eps0[region][j] = a[j]
         end
     end
 

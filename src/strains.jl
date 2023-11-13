@@ -1,10 +1,15 @@
 abstract type StrainType end
+
 abstract type LinearStrain <: StrainType end
 abstract type LinearStrain2D <: LinearStrain end
 abstract type LinearStrain3D <: LinearStrain end
 abstract type NonlinearStrain <: StrainType end
 abstract type NonlinearStrain2D <: NonlinearStrain end
 abstract type NonlinearStrain3D <: NonlinearStrain end
+
+abstract type PreStrainType end
+abstract type IsotropicPrestrain <: PreStrainType end
+abstract type AnisotropicDiagonalPrestrain <: PreStrainType end
 
 # allows to include other strains like Henky strain later
 
@@ -47,5 +52,25 @@ end
     result[offset + 4] += input[3]*input[2] + input[6]*input[5] + input[9]*input[8]
     result[offset + 5] += input[1]*input[3] + input[4]*input[6] + input[7]*input[9]
     result[offset + 6] += input[1]*input[2] + input[4]*input[5] + input[7]*input[8]
+    return nothing
+end
+
+@inline function eval_elastic_strain!(result, input, ::Type{IsotropicPrestrain})
+    result[1:length(input)] .-= input .* (1. .+ input ./ 2)
+    result ./= (1. + input[1])^2
+    return nothing
+end
+
+@inline function eval_elastic_strain!(result, input, ::Type{AnisotropicDiagonalPrestrain})
+    result[1] = result[1]/((1+input[1])*(1+input[1])) - (1-1/((1+input[1])*(1+input[1])))/2
+    result[2] = result[2]/((1+input[2])*(1+input[2])) - (1-1/((1+input[2])*(1+input[2])))/2
+    if length(input) == 3
+        result[3] = result[3]/((1+input[3])*(1+input[3])) - (1-1/((1+input[3])*(1+input[3])))/2
+        result[4] = result[4]/((1+input[2])*(1+input[3]))
+        result[5] = result[5]/((1+input[1])*(1+input[3]))
+        result[6] = result[6]/((1+input[1])*(1+input[2]))
+    else
+        result[3] = result[3]/((1+input[1])*(1+input[2]))
+    end
     return nothing
 end
