@@ -677,7 +677,7 @@ let
 	vis = GridVisualizer(Plotter=PlutoVista,layout=(1,1),resolution=(700,700))
 
 	shape = 2
-	
+
 	nrefs = 0
 	refinement_width = nothing
 	corner_refinement = false
@@ -737,6 +737,34 @@ let
 		rotate=rotate)
 	gridplot!(vis[1,1],cross_section)
 	@info num_nodes(grid)
+	reveal(vis)
+end
+
+# ╔═╡ e2d29ff0-7d05-4509-abdf-b7e207687888
+let
+	dbulk = 60
+	dstressor = 20
+	dcore = 20
+	geometry = [dcore, dbulk-dcore, dstressor, 2000]
+	scale = [geometry[1]/sqrt(3),geometry[2]/sqrt(3),geometry[3],geometry[4]]
+	vis = GridVisualizer(Plotter=PlutoVista,layout=(1,1),resolution=(700,700))
+
+	shape = 2
+
+	nrefs = 3
+	refinement_width = (dstressor >= 10 ? 4 : dbulk/25+1)/sqrt(3)
+	corner_refinement = false
+	manual_refinement = true
+	rotate = 0
+
+    grid, cross_section = nanowire_tensorgrid_mirror!(; scale=scale, shape=shape,
+        cut_levels=nothing, nrefs=nrefs, refinement_width=refinement_width,
+        corner_refinement=corner_refinement, manual_refinement=manual_refinement,
+		rotate=rotate)
+
+	gridplot!(vis[1,1],cross_section)
+	@info num_nodes(grid), num_cells(grid)
+	PyPlot.savefig("cross_section2.pdf")
 	reveal(vis)
 end
 
@@ -872,6 +900,22 @@ let
 	
     grid, xgrid_cross_section = bimetal_tensorgrid_uniform(; scale=scale, nrefs=nrefs, material_border=mb, hz=hz)
 	gridplot!(vis[1,1],grid)
+	@info num_nodes(grid), num_cells(grid)
+	reveal(vis)
+end
+
+# ╔═╡ 4664553e-d37a-41f7-a439-c833e8ba95a9
+let
+	scale = [20,100,200]
+	vis = GridVisualizer(Plotter=PlutoVista,layout=(1,1),resolution=(700,700))
+
+	nrefs = 1
+	mb = 0.3
+	hz = 50
+
+    grid, xgrid_cross_section = bimetal_tensorgrid_uniform(; scale=scale,
+		nrefs=nrefs, material_border=mb, hz=hz)
+	gridplot!(vis[1,1],grid)
 	@info num_nodes(grid)
 	reveal(vis)
 end
@@ -933,13 +977,14 @@ end
 
 # ╔═╡ 8f3027d3-fb5f-4f24-ab6b-4dc4526a4f99
 let
-	scale = [200,50,2000]
+	scale = [200,50,500]
 	vis = GridVisualizer(Plotter=PlutoVista,layout=(1,1),resolution=(700,700))
 
 	nrefs = 1
 	mb = 0.5
 	
-    grid,xgrid_cross_section = bimetal_tensorgrid_uniform1(; scale=scale, nrefs=nrefs, material_border=mb)
+    grid,xgrid_cross_section = bimetal_tensorgrid_uniform1(; scale=scale,
+	nrefs=nrefs, material_border=mb)
 	gridplot!(vis[1,1],grid)
 	@info num_nodes(grid)
 	reveal(vis)
@@ -1004,21 +1049,6 @@ function bimetal_tensorgrid_uniform2(; scale = [1,1,1], nrefs = 1, material_bord
 
 end
 
-# ╔═╡ 4664553e-d37a-41f7-a439-c833e8ba95a9
-let
-	scale = [20,100,200]
-	vis = GridVisualizer(Plotter=PlutoVista,layout=(1,1),resolution=(700,700))
-
-	nrefs = 1
-	mb = 0.5
-	hz = 50
-	
-    grid, xgrid_cross_section = bimetal_tensorgrid_uniform(; scale=scale, nrefs=nrefs, material_border=mb, hz=hz)
-	gridplot!(vis[1,1],grid)
-	@info num_nodes(grid)
-	reveal(vis)
-end
-
 # ╔═╡ Cell order:
 # ╠═6f8fc024-5e35-11ed-0828-8338123976ce
 # ╟─902d154e-5a51-4955-b3c7-9eda226a7125
@@ -1028,6 +1058,7 @@ end
 # ╠═6a1e0b51-cf24-4f24-aaf0-39fe3beb8dcd
 # ╠═5020c786-0560-4d00-a2ab-bca6b2c40fe7
 # ╠═a0387376-89a9-4af1-945a-251ee6d668cd
+# ╠═e2d29ff0-7d05-4509-abdf-b7e207687888
 # ╠═f478eda3-6192-4f69-ba39-08bebeaa7847
 # ╠═d60b1192-46be-4b6a-b48c-1144d6bf1257
 # ╠═ecf47d9b-efbb-467a-b924-3195a6cdd9cf
