@@ -252,6 +252,7 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
     only_localsearch = true,
     eps_gfind = 1e-11,
     eps0 = nothing,
+    PSType = AnisotropicDiagonalPrestrain,
     cut_direction = 3, # 1 = y-z-plane, 2 = x-z-plane, 3 = x-y-plane (default)
     Plotter = nothing,
     upscaling = 0,
@@ -687,10 +688,15 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
                 eval_strain!(strain, gradient, strain_model)
                 for k = 1 : 6
                     CutSolution_ϵu.entries[(k-1)*nnodes_uni + j] = strain[k]
-                    CutSolution_ϵu_elastic.entries[(k-1)*nnodes_uni + j] = strain[k]
+                   # CutSolution_ϵu_elastic.entries[(k-1)*nnodes_uni + j] = strain[k]
                 end
-                for k = 1 : 3
-                    CutSolution_ϵu_elastic.entries[(k-1)*nnodes_uni + j] -= eps0_fefunc_uni.entries[(k-1)*nnodes_uni + j]
+                #for k = 1 : 3
+                #    CutSolution_ϵu_elastic.entries[(k-1)*nnodes_uni + j] -= eps0_fefunc_uni.entries[(k-1)*nnodes_uni + j]
+                #end
+                eval_elastic_strain!(strain, eps0_fefunc_uni.entries[(1:3 .- 1).*nnodes_uni .+ j], PSType)
+
+                for k = 1 : 6
+                    CutSolution_ϵu_elastic.entries[(k-1)*nnodes_uni + j] = strain[k]
                 end
                 for k = 4 : 6
                     CutSolution_ϵu.entries[(k-1)*nnodes_uni + j] /= 2

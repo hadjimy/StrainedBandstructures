@@ -80,6 +80,7 @@ function get_defaults()
         "stressor_x" => 0.5,                            # x value for x-dependent stressor material
         "mstruct" => ZincBlende001,                     # material structure type
         "strainm" => NonlinearStrain3D,                 # strain model
+        "estrainm" => IsotropicPrestrain,               # elastic strain model
     )
     #dim = length(params["scale"])
     #params["strainm"] = dim == 2 ? NonlinearStrain2D : NonlinearStrain3D
@@ -120,19 +121,25 @@ function run_single(d = nothing; force::Bool = false, generate_vtk = true, Plott
 
     if d["scenario"] == 1
         ## compute lattice_mismatch
-        latmis = d["latmis"]
-        lc = [5, 5 * ( 1 + latmis )]
+        lc = [5, 5 * ( 1 + d["latmis"] )]
         @info "lattice mismatch: $(round(100*(lc[2]/lc[1]-1),digits=3)) %"
     elseif d["scenario"] == 2
         materials = [GaAs, AlInAs{d["stressor_x"]}]
         materialstructuretype = d["mstruct"]
         MD = set_data(materials, materialstructuretype)
 
-        nregions = length(MD.data)
-        lc::Array{Float64,1} = zeros(Float64,nregions)
-        for j = 1 : nregions
-            lc[j] = MD.data[j].LatticeConstants[1]
+        ## compute lattice_mismatch
+        if d["latmis"] == nothing
+            nregions = length(MD.data)
+            lc::Array{Float64,1} = zeros(Float64,nregions)
+            for j = 1 : nregions
+                lc[j] = MD.data[j].LatticeConstants[1]
+            end
+        else
+            lc = [5, 5 * ( 1 + d["latmis"] )]
         end
+        @info "lattice mismatch: $(round(100*(lc[2]/lc[1]-1),digits=3)) %"
+        @info lc
 
         ## save data
         fulld["MD"] = MD
@@ -173,7 +180,7 @@ end
 function main(d::Dict; Plotter = Plotter, verbosity = 0)
 
     ## unpack paramers
-    @unpack scenario, linsolver, latmis, misfit_strain, α, full_nonlin, use_emb, nsteps, maxits, tres, scale, mb, hz, femorder, nrefs, strainm, avgc, grid_type, bc = d
+    @unpack scenario, linsolver, latmis, misfit_strain, α, full_nonlin, use_emb, nsteps, maxits, tres, scale, mb, hz, femorder, nrefs, strainm, estrainm, avgc, grid_type, bc = d
     
     ## set log level
     set_verbosity(verbosity)
@@ -330,13 +337,12 @@ function main(d::Dict; Plotter = Plotter, verbosity = 0)
     #     Solution, residual = solve_by_damping!(Solution, Problem, xgrid, energy; FETypes = FETypes, linsolver = linsolver, target_residual = tres, maxiterations = maxits)
     # end
 
-
     if scenario == 1
-        DisplacementOperator = PDEDisplacementOperator([IsotropicElasticityTensor(λ[1], μ[1], dim),IsotropicElasticityTensor(λ[2], μ[2], dim)], strainm, misfit_strain, α, emb, 3) #get_displacement_operator_new(MD.TensorC, strainm, eps0, a; dim = 3, emb = parameters, regions = 1:nregions, bonus_quadorder = quadorder_D)
+        DisplacementOperator = PDEDisplacementOperator([IsotropicElasticityTensor(λ[1], μ[1], dim),IsotropicElasticityTensor(λ[2], μ[2], dim)], strainm, estrainm, misfit_strain, α, emb, 3) #get_displacement_operator_new(MD.TensorC, strainm, eps0, a; dim = 3, emb = parameters, regions = 1:nregions, bonus_quadorder = quadorder_D)
     elseif scenario == 2
         k0 = 8.854e-3 # 8.854e-12 C/(V m) = 1e9*8.854e-12 C/(V nm)
         kr::Array{Float64,1} = [MD.data[1].kappar, MD.data[2].kappar, MD.data[end].kappar]
-        DisplacementOperator = PDEDisplacementOperator(MD.TensorC, strainm, misfit_strain, α, emb, 3) #get_displacement_operator_new(MD.TensorC, strainm, eps0, a; dim = 3, emb = parameters, regions = 1:nregions, bonus_quadorder = quadorder_D)
+        DisplacementOperator = PDEDisplacementOperator(MD.TensorC, strainm, estrainm, misfit_strain, α, emb, 3) #get_displacement_operator_new(MD.TensorC, strainm, eps0, a; dim = 3, emb = parameters, regions = 1:nregions, bonus_quadorder = quadorder_D)
         PolarisationOperator = PDEPolarisationOperator(MD.TensorE, strainm, misfit_strain, k0 * kr, 3)
     else
         @error "scenario not defined"
@@ -377,7 +383,8 @@ function get_lattice_mismatch_bimetal(avgc, geometry, lc)
         end
     end
 
-    return a .* (1 .+ a./2), a
+    #return a .* (1 .+ a./2), a
+    return a, a
 end
 
 
@@ -415,7 +422,7 @@ function export_cuts(;
     @info "Exporting cuts..."
 
     # load all data
-    alldata = collect_results(datadir(watson_datasubdir))
+    alldata = collect_results(datadir(watson_datasubdir);subfolders=true)
 
     # filter and sort
     df = filter(:scale => ==(scale), alldata)
@@ -481,7 +488,7 @@ function postprocess(;
     @info "Starting postprocessing..."
 
     # load all data
-    alldata = collect_results(datadir(watson_datasubdir))
+    alldata = collect_results(datadir(watson_datasubdir);subfolders=true)
 
     # init plot
     fig, (ax1, ax2) = Plotter.subplots(2, 1);
@@ -518,7 +525,8 @@ function postprocess(;
             scale = data[:scale]
             # misfit_strain = data[:misfit_strain]
             ## compute bending statistics
-            bending_axis_end_points = [[scale[1],scale[2]/2,0],[scale[1],scale[2]/2,scale[3]]]
+            scaling = 1 - abs(2*mb-1)
+            bending_axis_end_points = [[scaling*scale[1],scale[2]/2,0],[scaling*scale[1],scale[2]/2,scale[3]]]
             angle, curvature, dist_bend, farthest_point = compute_statistics(solution[1].FES.xgrid, solution[1], bending_axis_end_points, eltype(solution[1].FES))
 
             # calculate analytic curvature (is it correct for 3D?)
@@ -527,10 +535,10 @@ function postprocess(;
             mb = data[:mb]
             #factor = 1/2*(α[2] - α[1])*(2 + α[1] + α[2])
             factor = α[2] - α[1]
-            h1 = data[:scale][1] * mb
-            h2 = data[:scale][1] * (1-mb)
-            m = h1/h2
             n = E[1]/E[2]
+            h1 = data[:scale][1] * (1-mb)
+            h2 = data[:scale][1] * (mb)
+            m = h1/h2
             analytic_curvature = abs( 6.0 * factor * (1+m)^2 / ((h1+h2) * ( 3*(1+m)^2 + (1+m*n)*(m^2+1/(m*n)))) )
             analytic_arc = scale[3]*(m^4 + 4*m*n + 6*m^2*n + 4*m^3*n + n^2 + m*(m^3 + 4*n + 3*m*n)*α[1] + n*(3*m^2 + 4*m^3 + n)*α[2])/(m^4 + 4*m*n + 6*m^2*n + 4*m^3*n + n^2)
             analytic_arc = mod(analytic_arc,2*π/analytic_curvature)
@@ -543,6 +551,7 @@ function postprocess(;
             #@info "dist_bend = $(dist_bend)"
             @info "simulation ===> R = $(1/curvature) | curvature = $curvature | bending angle = $(angle)°"
             @info "analytic   ===> R = $(1/analytic_curvature) | curvature = $analytic_curvature | bending angle = $(analytic_angle)°"
+            println()
             push!(lattice_mismatch, data[:latmis])
             push!(sim_angle, angle)
             push!(ana_angle, analytic_angle)
@@ -552,7 +561,9 @@ function postprocess(;
         for i in eachindex(sim_curvature)
             println(sim_curvature[i])
         end
-            
+
+        @info sim_curvature
+
         @info "Plotting ..."
         lattice_mismatch *= 100
         ax1.plot(lattice_mismatch, 1e3 .* sim_curvature, color = color[j], marker = marker[j])

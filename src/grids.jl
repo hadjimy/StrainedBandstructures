@@ -979,13 +979,12 @@ end
 function bimetal_tensorgrid_uniform(; scale = [1,1,1], nrefs = 1, material_border = 0.5, hz = 50)
 
 	W = scale[1]; H = scale[2]; Z = scale[3]
+    h1 = W*(1-material_border)
+    h2 = W*material_border
 
-    @info "Generating bimetal 3D grid for scale = $scale and middle interface at $material_border of height $H"
+    @info "Generating bimetal 3D grid for scale = $scale and middle interface at $material_border (core = $h1, stressor = $h2)"
 
-    h1 = W*material_border
-    h2 = W-h1
     factor = 2.0^-nrefs
-
     hx = min(h1,h2)*factor
 	hy = hx
 	hz = min(hz,Z)

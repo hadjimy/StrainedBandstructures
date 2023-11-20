@@ -98,6 +98,12 @@ function main(d = nothing; verbosity = 0, Plotter = nothing, force::Bool = false
         set_params!(d; kwargs...)
     end
 
+    ## raise a warning if anisotropic material is used with isotropic elastic strain_model
+    if d["mstruct"] != ZincBlende001 && d["estrainm"] == IsotropicPrestrain
+        @error "ArgumentError: Use IsotropicPrestrain only with ZincBlende001 materials"
+        return
+    end
+
     println("***Solving nanowire problem***")
 
     ## set log level
