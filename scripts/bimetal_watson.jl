@@ -402,9 +402,9 @@ end
 function export_vtk(d = nothing; upscaling = 0, kwargs...)
     d = load_data(d; kwargs)
     filename_vtk = savename(d, ""; allowedtypes = watson_allowedtypes, accesses = watson_accesses)
-    solution = d["solution"]
+    @unpack solution, strainm, estrainm, misfit_strain = d
     repair_grid!(solution[1].FES.xgrid)
-    NanoWiresJulia.exportVTK(datadir(watson_datasubdir, filename_vtk), solution[1]; upscaling = upscaling, strain_model = d["strainm"], eps0 = d["misfit_strain"])
+    NanoWiresJulia.exportVTK(datadir(watson_datasubdir, filename_vtk), misfit_strain, solution[1], nothing; EST = estrainm, strain_model = strainm, P0strain = true, upscaling = upscaling)
 end
 
 function export_cuts(; 
@@ -527,6 +527,7 @@ function postprocess(;
             ## compute bending statistics
             scaling = 1 - abs(2*mb-1)
             bending_axis_end_points = [[scaling*scale[1],scale[2]/2,0],[scaling*scale[1],scale[2]/2,scale[3]]]
+            @info bending_axis_end_points
             angle, curvature, dist_bend, farthest_point = compute_statistics(solution[1].FES.xgrid, solution[1], bending_axis_end_points, eltype(solution[1].FES))
 
             # calculate analytic curvature (is it correct for 3D?)

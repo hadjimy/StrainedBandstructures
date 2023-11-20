@@ -394,14 +394,20 @@ function load_data(d = nothing; watson_datasubdir = watson_datasubdir, kwargs...
 end
 
 function export_vtk(d = nothing; upscaling = 0, kwargs...)
-    d = load_data(d; kwargs...)
+    if d == nothing
+        d = load_data(d; kwargs...)
+    end
     filename_vtk = savename(d, ""; allowedtypes = watson_allowedtypes, accesses = watson_accesses)
-    solution = d["solution"]
+    @unpack solution, strainm, estrainm, eps0, polarisation = d
     repair_grid!(solution[1].FES.xgrid)
-    exportVTK(datadir(watson_datasubdir, filename_vtk), solution[1]; P0strain = true, upscaling = upscaling, strain_model = d["strainm"], eps0 = d["eps0"])
+    if polarisation
+        exportVTK(datadir(watson_datasubdir, filename_vtk), eps0, solution[1], solution[2]; EST = estrainm, strain_model = strainm, P0strain = true, upscaling = upscaling)
+    else
+        exportVTK(datadir(watson_datasubdir, filename_vtk), eps0, solution[1]; EST = estrainm, strain_model = strainm, P0strain = true, upscaling = upscaling)
+    end
 end
 
-function postprocess(filename = nothing; watson_datasubdir = watson_datasubdir, Plotter = nothing, export_vtk = true, cross_section_cuts = true, cut_levels = "auto", simple_cuts = true, cut_npoints = 200, vol_cut = "auto", eps_gfind = 1e-12, upscaling = 0, kwargs...)
+function postprocess(filename = nothing; watson_datasubdir = watson_datasubdir, Plotter = nothing, export_sol = true, cross_section_cuts = true, cut_levels = "auto", simple_cuts = true, cut_npoints = 200, vol_cut = "auto", eps_gfind = 1e-12, upscaling = 0, kwargs...)
 
     if typeof(filename) <: Dict
         d = filename
@@ -427,14 +433,15 @@ function postprocess(filename = nothing; watson_datasubdir = watson_datasubdir, 
     d["curvature"] = curvature
 
     # export vtk files
-    if export_vtk == true
-        @unpack polarisation, strainm, eps0 = d
-        filename_vtk = savename(d, ""; allowedtypes = watson_allowedtypes, accesses = watson_accesses)
-        if polarisation
-            exportVTK(datadir(watson_datasubdir, filename_vtk), solution[1], solution[2]; P0strain = true, upscaling = upscaling, strain_model = strainm, eps0 = eps0)
-        else
-            exportVTK(datadir(watson_datasubdir, filename_vtk), solution[1]; P0strain = true, upscaling = upscaling, strain_model = strainm, eps0 = eps0)
-        end
+    if export_sol == true
+        export_vtk(d)
+        # @unpack polarisation, strainm, estrainm, eps0 = d
+        # filename_vtk = savename(d, ""; allowedtypes = watson_allowedtypes, accesses = watson_accesses)
+        # if polarisation
+        #     exportVTK(datadir(watson_datasubdir, filename_vtk), eps0, solution[1], solution[2]; EST = estrainm, strain_model = strainm, P0strain = true, upscaling = upscaling)
+        # else
+        #     exportVTK(datadir(watson_datasubdir, filename_vtk), eps0, solution[1]; EST = estrainm, strain_model = strainm, P0strain = true, upscaling = upscaling)
+        # end
     end
 
     ## save again
