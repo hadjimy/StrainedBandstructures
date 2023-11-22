@@ -56,7 +56,7 @@ function get_defaults()
         "cut_levels_pos" => [0.5],                      # position of cut-levels w.r.t. nanowire length. i.e., cut_levels = cut_levels_pos * geometry[4]
         "cross_section" => 1,                           # geometry of stressor; either version 1,2 or 3
         "corner_refinement" => false,                   # assigning more nodes at interface corners
-        "rotate" =>  true                               # rotate cross section by 90 degrees clockwise
+        "rotate" =>  0                                  # rotate cross section clockwise
     )
     return params
 end
@@ -422,12 +422,13 @@ function postprocess(filename = nothing; watson_datasubdir = watson_datasubdir, 
     ## compute statistics
     @unpack solution, geometry, cross_section, rotate = d
 
-    bending_axis_end_points = cross_section == 1 ? [[0,-(geometry[1]+geometry[2])/sqrt(3),0],[0,-(geometry[1]+geometry[2])/sqrt(3),geometry[4]]] : [[0,-(geometry[1]+geometry[2])/2,0],[0,-(geometry[1]+geometry[2])/2,geometry[4]]]
-    if rotate == true
-        bending_axis_end_points[1] = reverse(bending_axis_end_points[1], 1, 2)
-        bending_axis_end_points[2] = reverse(bending_axis_end_points[2], 1, 2)
-    end
-    @info bending_axis_end_points
+    cross_section_points = cross_section == 1 ? [0,-(geometry[1]+geometry[2])/sqrt(3)] : [0,-(geometry[1]+geometry[2])/2]
+    # rotate cross section points by angle theta
+    theta = rotate * pi/180
+	rotated_pointx = cos(theta)*cross_section_points[1] + sin(theta)*cross_section_points[2]
+	rotated_pointy = -sin(theta)*cross_section_points[1] + cos(theta)*cross_section_points[2]
+
+    bending_axis_end_points = [[rotated_pointx,rotated_pointy,0],[rotated_pointx,rotated_pointy,geometry[4]]]
     angle, curvature, dist_bend, farthest_point = compute_statistics(solution[1].FES.xgrid, solution[1], bending_axis_end_points, eltype(solution[1].FES))
     d["angle"] = angle
     d["curvature"] = curvature
