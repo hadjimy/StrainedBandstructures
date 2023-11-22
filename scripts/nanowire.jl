@@ -435,13 +435,6 @@ function postprocess(filename = nothing; watson_datasubdir = watson_datasubdir, 
     # export vtk files
     if export_sol == true
         export_vtk(d)
-        # @unpack polarisation, strainm, estrainm, eps0 = d
-        # filename_vtk = savename(d, ""; allowedtypes = watson_allowedtypes, accesses = watson_accesses)
-        # if polarisation
-        #     exportVTK(datadir(watson_datasubdir, filename_vtk), eps0, solution[1], solution[2]; EST = estrainm, strain_model = strainm, P0strain = true, upscaling = upscaling)
-        # else
-        #     exportVTK(datadir(watson_datasubdir, filename_vtk), eps0, solution[1]; EST = estrainm, strain_model = strainm, P0strain = true, upscaling = upscaling)
-        # end
     end
 
     ## save again

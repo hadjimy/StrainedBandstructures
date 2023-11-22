@@ -687,7 +687,7 @@ end
 
 function nanowire_tensorgrid(; scale = [1,1,1,1], nrefs = 1, cut_levels = scale[4]/2, α = nothing, Plotter = nothing, z_levels_dist = 100, version = 1)
 
-    @info "Generating nanowire grid for scale = $scale"
+    @info "Generating nanowire grid for geometry = $scale"
 
     builder=SimplexGridBuilder(Generator=Triangulate)
 
@@ -1100,7 +1100,7 @@ function nanowire_tensorgrid_mirror(; scale = [1,1,1,1], shape = 1,
     refinement_width = nothing, corner_refinement = false, manual_refinement = false,
     rotate = true, max_nodes = 20)
 
-    @info "Generating nanowire grid for scale = $scale"
+    @info "Generating nanowire grid for geometry = $scale"
 
     builder = SimplexGridBuilder(Generator=Triangulate)
     p::Array{Int64,1} = zeros(Int64,max_nodes)
