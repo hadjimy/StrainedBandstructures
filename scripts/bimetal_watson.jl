@@ -572,7 +572,7 @@ function postprocess(;
         ax2.plot(lattice_mismatch, sim_angle, color = color[j], marker = marker[j])
         ax2.plot(lattice_mismatch, ana_angle, color = color[j], linestyle = "--")
 
-        ax1.set_title("Core: $(Int(mb*100))%, Stressor: $(Int((1-mb)*100))%")
+        ax1.set_title("Stressor: $(Int(mb*100))%, Core: $(Int((1-mb)*100))%")
         append!(legend, ["simulation, d = $(scale[1])","analytic, d = $(scale[1])"])
         ax1.set_ylabel("curvature (μm^-1)")
         ax2.set_ylabel("angle (degrees)")
