@@ -1,9 +1,10 @@
 function solve_lowlevel(
     xgrid::ExtendableGrid,                          # grid
-    boundary_conditions,                            # Array of BoundaryData for each unknown
+    boundary_operator,                                   # Operator for boundary data (Dirichlet)
     displacement_operator,                          # Operator for displacement
     polarisation_operator,                          # Operator for polarisation
     emb_params;                                     # embedding parameters (operators must depend on them!)
+    periodic_boundary_operator = nothing,             # operator for periodic boundary
     FETypes = [H1P1{size(xgrid[Coordinates],1)}],   # FETypes (default: P1)
     linsolver = ExtendableSparse.MKLPardiso,
     nsteps = ones(Int,length(FETypes)),             # number of embedding steps (parameters are scaled by nsteps equidistant steps within 0:1)
@@ -190,19 +191,26 @@ function solve_lowlevel(
         end
 
         ## apply penalties for boundary condition
-        assemble!(boundary_conditions, FES[1])
-        bdofs = boundary_conditions.bdofs
+        assemble!(boundary_operator, FES[1])
+        bdofs = fixed_dofs(boundary_operator)
 
         for dof in bdofs
             SE[dof,dof] = fixed_penalty
-            rhs.entries[dof] = 0 # fixed_penalty * Solution.entries[dof]
+            rhs.entries[dof] = 0
             Solution.entries[dof] = 0
         end
 
-        ### apply global constraints
-        #for constraint in global_constraints
-        #    apply_constraint!(S, rhs, constraint, Solution)
-        #end
+        ## apply changes for periodic boundary
+        if periodic_boundary_operator !== nothing
+            build_assembler!(periodic_boundary_operator, [Solution[1]])
+            periodic_boundary_operator.assembler(SE, rhs.entries, true, true)
+            bdofs = fixed_dofs(periodic_boundary_operator)
+            for dof in bdofs
+                SE[dof,dof] = fixed_penalty
+                rhs.entries[dof] = 0
+                Solution.entries[dof] = 0
+            end
+        end
 
         flush!(SE)
     end
@@ -371,7 +379,6 @@ function solve_lowlevel(
                 view(Solution[1]) .= (1 - damping) * Solution.entries + damping * SolutionOld.entries
                 change = norm(SolutionOld.entries - Solution.entries)
             end
-
         end
     end
 

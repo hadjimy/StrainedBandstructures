@@ -1,7 +1,7 @@
 module bimetal
 
 using NanoWiresJulia
-using GradientRobustMultiPhysics
+using ExtendableFEM
 using ExtendableGrids
 using SimplexGridFactory
 using Triangulate
@@ -175,14 +175,12 @@ function main(d::Dict; Plotter = Plotter, verbosity = 0)
     ## unpack paramers
     @unpack scenario, linsolver, latmis, misfit_strain, α, full_nonlin, use_emb, nsteps, maxits, tres, scale, mb, hz, femorder, nrefs, strainm, avgc, grid_type, bc = d
     
-    ## set log level
-    set_verbosity(verbosity)
-    
     if scenario == 1
         ## compute Lame' coefficients μ and λ from ν and E
         @unpack E, ν = d
         μ = E ./ (2  .* (1 .+ ν))
         λ = E .* ν ./ ( (1 .- 2*ν) .* (1 .+ ν))
+        nregions = 2
     elseif scenario == 2
         @unpack MD = d
         nregions = length(MD.data)
@@ -205,6 +203,7 @@ function main(d::Dict; Plotter = Plotter, verbosity = 0)
     else
         @error "scenario not defined"
     end
+    parameters::Array{Float64,1} = [full_nonlin ? 1 : 0]
 
     ## generate bimetal mesh
     dim::Int = length(scale)
@@ -236,14 +235,6 @@ function main(d::Dict; Plotter = Plotter, verbosity = 0)
          else
             xgrid = bimetal_strip3D_middle_layer(; scale = scale, reflevel = nrefs); dirichlet_regions = [3,4]
         end
-
-        if femorder == 1
-            FEType = H1P1{3}
-        elseif femorder == 2
-            FEType = H1P2{3,3}
-        elseif femorder == 3
-            FEType = H1P3{3,3}
-        end
     else
         if grid_type == "default"
             xgrid = bimetal_strip2D(; material_border = mb, scale = scale)
@@ -257,7 +248,6 @@ function main(d::Dict; Plotter = Plotter, verbosity = 0)
                             [1,3,(f1,f2) -> abs(f1[1] - f2[1]) + abs(f1[3] - f2[3]) < 1e-12,  [-1,-1]],
                             [2,4,(f1,f2) -> abs(f1[3] - f2[3]) + abs(f1[2] - f2[2]) < 1e-12,  [-1,-1]]]
         end
-        FEType = H1Pk{2,2,femorder}
         xgrid = uniform_refine(xgrid,nrefs)
     end
     if Plotter !== nothing
@@ -266,93 +256,78 @@ function main(d::Dict; Plotter = Plotter, verbosity = 0)
     end
 
     ## setup model
-    full_nonlin *= strainm <: NonlinearStrain
-    emb::Array{Float64,1} = [full_nonlin ? 1.0 : 0] # array with embedding parameters for complicated model terms
-
-    ## generate problem description
-    Problem = PDEDescription("bimetal deformation under misfit strain")
-    add_unknown!(Problem; unknown_name = "u", equation_name = "displacement equation")
-    for r = 1 : 2
-        if scenario == 1
-            add_operator!(Problem, 1, get_displacement_operator(IsotropicElasticityTensor(λ[r], μ[r], dim), strainm, misfit_strain[r], α[r]; dim = dim, emb = emb, regions = [r], bonus_quadorder = 2*(femorder-1)))
-        elseif scenario == 2
-            add_operator!(Problem, 1, get_displacement_operator(MD.TensorC[r], strainm, misfit_strain[r], α[r]; dim = dim, emb = emb, regions = [r], bonus_quadorder = 2*(femorder-1)))
-            #add_operator!(Problem, 1, get_displacement_operator(IsotropicElasticityTensor(λ[r], μ[r], dim), strainm, misfit_strain[r], α[r]; dim = dim, emb = emb, regions = [r], bonus_quadorder = 2*(femorder-1)))
-        else
-            @error "scenario not defined"
-        end
+    if strainm <: NonlinearStrain3D && dim == 2
+        @warn "changing strainm to $strainm due to non-matching dimension"
+        strainm = NonlinearStrain2D
+        d["strainm"] = strainm
+    elseif strinam <: LinearStrain3D && dim == 2
+        @warn "changing strainm to $strainm due to non-matching dimension"
+        strainm = LinearStrain2D
+        d["strainm"] = strainm
     end
-    damping = 0
+    full_nonlin *= strainm <: NonlinearStrain
+
+    ###########################
+    ### PROBLEM DESCRIPTION ###
+    ###########################
+
+    ## create PDEDescription and add displacement unknown
+    Problem = ProblemDescription("nanowire bending")
+    u = Unknown("u"; name = "displacement")
+    assign_unknown!(Problem, u)
+
+    ## add (nonlinear) operators for displacement equation
+    if scenario == 1
+        DisplacementOperator = get_displacement_operator_new([IsotropicElasticityTensor(λ[r], μ[r], dim) for r = 1 : nregions], strainm, misfit_strain, α; dim = dim, displacement = u, emb = parameters, regions = 1:nregions, bonus_quadorder = 2*(femorder-1))
+    elseif scenario == 2
+        DisplacementOperator = get_displacement_operator_new(MD.TensorC, strainm, misfit_strain, α; dim = dim, displacement = u, emb = parameters, regions = 1:nregions, bonus_quadorder = 2*(femorder-1))
+    end
+    assign_operator!(Problem, DisplacementOperator)
+
+    ## add Dirichlet boundary data on front
+
     if bc != "periodic"
         if length(dirichlet_regions) > 0
-            add_boundarydata!(Problem, 1, dirichlet_regions, HomogeneousDirichletBoundary)
-        elseif length(periodic_regions) == 0
-            add_operator!(Problem, [1,1], BilinearForm([NormalFlux, NormalFlux]; factor = 1e30, AT = ON_BFACES, regions = [5]))
+            BoundaryOperator = HomogeneousBoundaryData(u; regions = dirichlet_regions)
+            assign_operator!(Problem, BoundaryOperator)
         end
-        if length(dirichlet_regions) == 0
-            if femorder == 1
-                ndofs4dim = num_nodes(xgrid)
-            elseif femorder == 2
-                ndofs4dim = num_nodes(xgrid) + dim == 3 ? size(xgrid[EdgeNodes],2) : size(xgrid[FaceNodes],2)
-            elseif femorder == 3
-                ndofs4dim = num_nodes(xgrid) + dim == 3 ? 2*size(xgrid[EdgeNodes],2) + size(xgrid[FaceNodes],2) : 2*size(xgrid[FaceNodes],1) + num_cells(xgrid)
-            end
-            add_constraint!(Problem, FixedDofs(1, [1], [0]))
-            add_constraint!(Problem, FixedDofs(1, [1+ndofs4dim], [0]))
-        end
+    elseif bc == "periodic"
+        @error "periodic boundary conditions not working yet"
+        #     ## add coupling information for periodic regions
+        #     for j = 1 : length(periodic_regions)
+        #         dofsX, dofsY = get_periodic_coupling_info(FES[1], xgrid, periodic_regions[j][1], periodic_regions[j][2], periodic_regions[j][3]; factor_components = periodic_regions[j][4])
+        #         add_constraint!(Problem, CombineDofs(1, 1, dofsX, dofsY))
+        #     end
+   end
+
+    ##############
+    ### SOLVER ###
+    ##############
+
+    ## choose finite element type for displacement (vector-valued) and polarisation (scalar-valued)
+    if femorder == 1
+        FEType_D = H1P1{dim}
+        FEType_P = H1P1{1}
+    elseif femorder == 2
+        FEType_D = H1P2{dim,dim}
+        FEType_P = H1P2{1,dim}
+    elseif femorder == 3
+        FEType_D = H1P3{dim,dim}
+        FEType_P = H1P3{1,dim}
     end
-
-    ## solve system with FEM
-    ## discretise the problem
-    ## create finite element space (FESpace) and solution vector (FEVector)
-    ## generate FESpace and FEVector for discretisation
-    FETypes = [FEType]
-    FES = Array{FESpace{Float64,Int32},1}(undef, length(FETypes))
-    for j = 1 : length(FETypes)
-        FES[j] = FESpace{FETypes[j]}(xgrid)
-    end
-    Solution = FEVector(FES)
-
-    if bc == "periodic"
-        ## add coupling information for periodic regions
-        for j = 1 : length(periodic_regions)
-            dofsX, dofsY = get_periodic_coupling_info(FES[1], xgrid, periodic_regions[j][1], periodic_regions[j][2], periodic_regions[j][3]; factor_components = periodic_regions[j][4])
-            add_constraint!(Problem, CombineDofs(1, 1, dofsX, dofsY))
-        end
-    end
-    @show Problem
-
-    # if use_emb
-    #     Solution, residual = solve_by_embedding!(Solution, Problem, xgrid, emb, nsteps = [nsteps],
-    #     linsolver = linsolver, FETypes = FETypes, target_residual = [tres], maxiterations = [maxits], damping = damping)
-    # else
-    #     energy = get_energy_integrator(stress_tensor, strainm, α; dim = dim)
-    #     Solution, residual = solve_by_damping!(Solution, Problem, xgrid, energy; FETypes = FETypes, linsolver = linsolver, target_residual = tres, maxiterations = maxits)
-    # end
-
-
-    if scenario == 1
-        DisplacementOperator = PDEDisplacementOperator([IsotropicElasticityTensor(λ[1], μ[1], dim),IsotropicElasticityTensor(λ[2], μ[2], dim)], strainm, misfit_strain, α, emb, 3) #get_displacement_operator_new(MD.TensorC, strainm, eps0, a; dim = 3, emb = parameters, regions = 1:nregions, bonus_quadorder = quadorder_D)
-    elseif scenario == 2
-        k0 = 8.854e-3 # 8.854e-12 C/(V m) = 1e9*8.854e-12 C/(V nm)
-        kr::Array{Float64,1} = [MD.data[1].kappar, MD.data[2].kappar, MD.data[end].kappar]
-        DisplacementOperator = PDEDisplacementOperator(MD.TensorC, strainm, misfit_strain, α, emb, 3) #get_displacement_operator_new(MD.TensorC, strainm, eps0, a; dim = 3, emb = parameters, regions = 1:nregions, bonus_quadorder = quadorder_D)
-        PolarisationOperator = PDEPolarisationOperator(MD.TensorE, strainm, misfit_strain, k0 * kr, 3)
-    else
-        @error "scenario not defined"
-    end
+    polarisation = false
+    PolarisationOperator = nothing
 
     Solution, residual = solve_lowlevel(xgrid,
-                                Problem.BoundaryOperators,
-                                Problem.GlobalConstraints,
-                                DisplacementOperator,
-                                nothing,
-                                emb;
+                                BoundaryOperator,
+                                DisplacementOperator.kernel,
+                                PolarisationOperator,
+                                parameters;
                                 linsolver = linsolver,
                                 nsteps = [nsteps, 1],
-                                FETypes = FETypes,
+                                FETypes = [FEType_D, FEType_P],
                                 target_residual = [tres, tres],
-                                solve_polarisation = false,
+                                solve_polarisation = polarisation,
                                 coupled = false,
                                 maxiterations = [maxits, 1])
 
@@ -388,6 +363,7 @@ function load_data(d = nothing; kwargs)
 
     # load dict from file
     filename = savename(d, "jld2"; allowedtypes = watson_allowedtypes, accesses = watson_accesses)
+    @info filename
     d = wload(datadir(watson_datasubdir, filename))
     return d
 end

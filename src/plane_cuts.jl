@@ -401,7 +401,7 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
             end
             @assert cells[i] > 0
             # evaluate displacement
-            evaluate!(result,PE,xref[i],cells[i])
+            evaluate_bary!(result,PE,xref[i],cells[i])
             ## displace point
             x[i] .+= result
         end
@@ -462,9 +462,24 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
         cut_grid[CellGeometries] = VectorOfConstants{ElementGeometries,Int}(Triangle2D,length(faces4level));
         cut_grid[CellRegions] = xgrid[CellRegions][xgrid[FaceCells][1,faces4level]]
         cut_grid[CoordinateSystem] = Cartesian2D
-        cut_grid[BFaceRegions] = ones(Int32,1)
+        cut_grid[BFaceRegions] = ones(Int32,0)
         cut_grid[BFaceNodes] = zeros(Int32,2,0)
+        cut_grid[BFaceCells] = zeros(Int32,2,0)
         cut_grid[BFaceGeometries] = VectorOfConstants{ElementGeometries,Int}(Edge1D, 0)
+
+        ## get subgrid for each region
+        subgrid1 = subgrid(cut_grid, [1,2]; boundary = false)
+        subgrid2 = subgrid(cut_grid, [3]; boundary = false)
+
+        ## get parent nodes for each subgrid
+        subnodes1 = subgrid1[ExtendableGrids.NodeInParent]
+        subnodes2 = subgrid2[ExtendableGrids.NodeInParent]
+
+        ## compute nodevalues for nodes of each subgrid
+        nodevals_gradient1 = nodevalues(Solution[1], Gradient; regions = [1,2], nodes = nodes4level[subnodes1])
+        nodevals_gradient2 = nodevalues(Solution[1], Gradient; regions = [3], nodes = nodes4level[subnodes2])
+        nodevals_ϵu1 = zeros(Float64,6,size(nodevals_gradient1,2))
+        nodevals_ϵu2 = zeros(Float64,6,size(nodevals_gradient2,2))
 
         ## interpolate data on cut_grid
         @info "Interpolating data on cut mesh..."
@@ -494,17 +509,16 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
 
         
         ## calculate strain from gradient interpolation on cut
-        for j = 1 : nnodes_cut
-            eval_strain!(strain, view(nodevals_gradient,:,j), strain_model)
-            for k = 1 : 6
-                nodevals_ϵu[k,j] = strain[k]
-            #     nodevals_ϵu_elastic[k,j] = strain[k]
-            # end
-            # for k = 1 : 3
-            #     nodevals_ϵu_elastic[k,j] -= nodevals_ϵ0[k,j]
-            end
-            for k = 4 : 6
-                nodevals_ϵu[k,j] /= 2
+        ## todo modifications for elastic strain
+        for nv in [[nodevals_gradient,nodevals_ϵu], [nodevals_gradient1,nodevals_ϵu1], [nodevals_gradient2,nodevals_ϵu2]]
+            nv_∇u = nv[1]
+            nv_ϵu = nv[2]
+            for j = 1 : size(nv_∇u,2)
+                eval_strain!(strain, view(nv_∇u,:,j), strain_model)
+                nv_ϵu[:,j] .= strain
+                for k = 4 : 6
+                    nv_ϵu[k,j] /= 2
+                end
             end
         end
 
@@ -522,6 +536,8 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
             end
         end
         cut_grid2D[Coordinates] = xCoordinatesCutPlane
+        subgrid1[Coordinates] = xCoordinatesCutPlane[:,subnodes1]
+        subgrid2[Coordinates] = xCoordinatesCutPlane[:,subnodes2]
         CF2D = CellFinder(cut_grid2D)
 
         ## write data into csv file
@@ -543,15 +559,28 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
             @info "Plotting data on simple cut grid..."
             labels = ["ux","uy","uz"]
             for j = 1 : 3
-                scalarplot(cut_grid2D, view(nodevals,j,:), Plotter = Plotter; xlimits = (xmin-2,xmax+2), ylimits = (ymin-2,ymax+2), title = "$(labels[j]) on cut", fignumber = 1)
+                plt = scalarplot(cut_grid2D, view(nodevals,j,:), Plotter = Plotter; xlimits = (xmin-2,xmax+2), ylimits = (ymin-2,ymax+2), title = "$(labels[j]) on cut", fignumber = 1)
+                filename = target_folder_cut_level * "simple_cut_$(cut_level)_$(labels[j]).png"
                 if isdefined(Plotter,:savefig)
-                    Plotter.savefig(target_folder_cut_level * "simple_cut_$(cut_level)_$(labels[j]).png")
+                    Plotter.savefig(filename)
+                else
+	                GridVisualize.save(filename, plt; Plotter = Plotter)
                 end
             end
             for k = 1 : 6
-                scalarplot(cut_grid2D, view(nodevals_ϵu,k,:), Plotter = Plotter; xlimits = (xmin-2,xmax+2), ylimits = (ymin-2,ymax+2), title = "ϵ_$(component_names[k]) on cut", fignumber = 1)
+                plt = scalarplot(cut_grid2D, view(nodevals_ϵu,k,:), Plotter = Plotter; xlimits = (xmin-2,xmax+2), ylimits = (ymin-2,ymax+2), title = "ϵ_$(component_names[k]) on cut", fignumber = 1)
+                filename = target_folder_cut_level * "simple_cut_$(cut_level)_ϵ$(component_names[k]).png"
                 if isdefined(Plotter,:savefig)
-                    Plotter.savefig(target_folder_cut_level * "simple_cut_$(cut_level)_ϵ$(component_names[k]).png")
+                    Plotter.savefig(filename)
+                else
+	                GridVisualize.save(filename, plt; Plotter = Plotter)
+                end
+                plt = scalarplot([subgrid1,subgrid2], cut_grid2D, [view(nodevals_ϵu1,k,:),view(nodevals_ϵu2,k,:)], Plotter = Plotter; xlimits = (xmin-2,xmax+2), ylimits = (ymin-2,ymax+2), title = "ϵ_$(component_names[k]) on cut", fignumber = 1)
+                filename = target_folder_cut_level * "simple_cut_subgrid_$(cut_level)_ϵ$(component_names[k]).png"
+                if isdefined(Plotter,:savefig)
+                    Plotter.savefig(filename)
+                else
+	                GridVisualize.save(filename, plt; Plotter = Plotter)
                 end
                 # scalarplot(cut_grid2D, view(nodevals_ϵu_elastic,k,:), Plotter = Plotter; title = "ϵ_elastic_$(component_names[k]) on cut", fignumber = 1)
                 # if isdefined(Plotter,:savefig)
@@ -830,34 +859,52 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
                         end
                     end
                 end
-                scalarplot(xgrid_uni, view(CutSolution_u.entries,1:nnodes_uni), Plotter = Plotter; flimits = (uxmin,uxmax), title = "ux on cut", fignumber = 1)
+                plt = scalarplot(xgrid_uni, view(CutSolution_u.entries,1:nnodes_uni), Plotter = Plotter; flimits = (uxmin,uxmax), title = "ux on cut", fignumber = 1)
+                filename = target_folder_cut_level * "uniform_cut_$(cut_level)_ux.png"
                 if isdefined(Plotter,:savefig)
-                    Plotter.savefig(target_folder_cut_level * "uniform_cut_$(cut_level)_ux.png")
+                    Plotter.savefig(filename)
+                else
+                    GridVisualize.save(filename, plt; Plotter = Plotter)
                 end
-                scalarplot(xgrid_uni, view(CutSolution_u.entries,nnodes_uni+1:2*nnodes_uni), Plotter = Plotter; flimits = (uymin,uymax), title = "uy on cut", fignumber = 1)
+                plt = scalarplot(xgrid_uni, view(CutSolution_u.entries,nnodes_uni+1:2*nnodes_uni), Plotter = Plotter; flimits = (uymin,uymax), title = "uy on cut", fignumber = 1)
+                filename = target_folder_cut_level * "uniform_cut_$(cut_level)_uy.png"
                 if isdefined(Plotter,:savefig)
-                    Plotter.savefig(target_folder_cut_level * "uniform_cut_$(cut_level)_uy.png")
+                    Plotter.savefig(filename)
+                else
+                    GridVisualize.save(filename, plt; Plotter = Plotter)
                 end
-                scalarplot(xgrid_uni, view(CutSolution_u.entries,2*nnodes_uni+1:3*nnodes_uni), Plotter = Plotter; flimits = (uzmin,uzmax), title = "uz on cut", fignumber = 1)
+                plt = scalarplot(xgrid_uni, view(CutSolution_u.entries,2*nnodes_uni+1:3*nnodes_uni), Plotter = Plotter; flimits = (uzmin,uzmax), title = "uz on cut", fignumber = 1)
+                filename = target_folder_cut_level * "uniform_cut_$(cut_level)_uz.png"
                 if isdefined(Plotter,:savefig)
-                    Plotter.savefig(target_folder_cut_level * "uniform_cut_$(cut_level)_uz.png")
+                    Plotter.savefig(filename)
+                else
+                    GridVisualize.save(filename, plt; Plotter = Plotter)
                 end
                 if length(Solution) > 1
-                    scalarplot(xgrid_uni, CutSolution_P.entries, Plotter = Plotter; flimits = (Pmin,Pmax), title = "Polarisation on cut", fignumber = 1)
+                    plt = scalarplot(xgrid_uni, CutSolution_P.entries, Plotter = Plotter; flimits = (Pmin,Pmax), title = "Polarisation on cut", fignumber = 1)
+                    filename = target_folder_cut_level * "uniform_cut_$(cut_level)_P.png"
                     if isdefined(Plotter,:savefig)
-                        Plotter.savefig(target_folder_cut_level * "uniform_cut_$(cut_level)_P.png")
+                        Plotter.savefig(filename)
+                    else
+                        GridVisualize.save(filename, plt; Plotter = Plotter)
                     end
                 end
                 for k = 1 : 6
-                    scalarplot(xgrid_uni, view(CutSolution_ϵu.entries,(k-1)*nnodes_uni+1:k*nnodes_uni), Plotter = Plotter; flimits = (ϵmin[k],ϵmax[k]), title = "ϵ_$(component_names[k]) on cut", fignumber = 1)
+                    plt = scalarplot(xgrid_uni, view(CutSolution_ϵu.entries,(k-1)*nnodes_uni+1:k*nnodes_uni), Plotter = Plotter; flimits = (ϵmin[k],ϵmax[k]), title = "ϵ_$(component_names[k]) on cut", fignumber = 1)
+                    filename = target_folder_cut_level * "uniform_cut_$(cut_level)_ϵ$(component_names[k]).png"
                     if isdefined(Plotter,:savefig)
-                        Plotter.savefig(target_folder_cut_level * "uniform_cut_$(cut_level)_ϵ$(component_names[k]).png")
+                        Plotter.savefig(filename)
+                    else
+                        GridVisualize.save(filename, plt; Plotter = Plotter)
                     end
                 end
                 for k = 1 : 6
-                    scalarplot(xgrid_uni, view(CutSolution_ϵu_elastic.entries,(k-1)*nnodes_uni+1:k*nnodes_uni), Plotter = Plotter; flimits = (ϵmin_elastic[k],ϵmax_elastic[k]), title = "ϵ_$(component_names[k]) on cut", fignumber = 1)
+                    plt = scalarplot(xgrid_uni, view(CutSolution_ϵu_elastic.entries,(k-1)*nnodes_uni+1:k*nnodes_uni), Plotter = Plotter; flimits = (ϵmin_elastic[k],ϵmax_elastic[k]), title = "ϵ_$(component_names[k]) on cut", fignumber = 1)
+                    filename = target_folder_cut_level * "uniform_cut_$(cut_level)_ϵ_elastic$(component_names[k]).png"
                     if isdefined(Plotter,:savefig)
-                        Plotter.savefig(target_folder_cut_level * "uniform_cut_$(cut_level)_ϵ_elastic$(component_names[k]).png")
+                        Plotter.savefig(filename)
+                    else
+                        GridVisualize.save(filename, plt; Plotter = Plotter)
                     end
                 end
             end

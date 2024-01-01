@@ -25,7 +25,7 @@ end
     eval_strain!(result, input, ST)
 
     ## subtract misfit strain
-    @views result[1:op.dim] .-= op.misfit_strain[region]
+    @views result[1:op.dim] .-= op.misfit_strain[region][1:op.dim]
 
     ## multiply strain in result with isotropic stress tensor
     ## and store in input cache (all in Voigt notation)

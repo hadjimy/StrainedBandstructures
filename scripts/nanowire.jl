@@ -197,7 +197,6 @@ function main(d = nothing; verbosity = 0, Plotter = nothing, force::Bool = false
     Problem = ProblemDescription("nanowire bending")
     u = Unknown("u"; name = "displacement")
     assign_unknown!(Problem, u)
-    subiterations = [[1]]
 
     ## add Dirichlet boundary data on front
     regions_bc = [4,5,6]  # 4 = core bottom, 5 = shell bottom, 6 = stressor bottom
