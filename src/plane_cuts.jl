@@ -580,8 +580,8 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
                 else
 	                GridVisualize.save(filename, plt; Plotter = Plotter)
                 end
-                plt = scalarplot([subgrid1,subgrid2], cut_grid2D, [view(nodevals_ϵu1,k,:),view(nodevals_ϵu2,k,:)], Plotter = Plotter; xlimits = (xmin-2,xmax+2), ylimits = (ymin-2,ymax+2), title = "ϵ_$(component_names[k]) on cut", fignumber = 1)
-                filename = target_folder_cut_level * "simple_cut_subgrid_$(cut_level)_ϵ$(component_names[k]).png"
+                plt = scalarplot([subgrid1,subgrid2], cut_grid2D, [view(nodevals_ϵu1,k,:),view(nodevals_ϵu2,k,:)], Plotter = Plotter; xlimits = (xmin-2,xmax+2), ylimits = (ymin-2,ymax+2), title = "ϵ_elastic_$(component_names[k]) on cut", fignumber = 1)
+                filename = target_folder_cut_level * "simple_cut_subgrid_$(cut_level)_ϵ_elastic_$(component_names[k]).png"
                 if isdefined(Plotter,:savefig)
                     Plotter.savefig(filename)
                 else
