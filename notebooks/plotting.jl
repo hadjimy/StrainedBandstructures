@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.19.29
+# v0.19.32
 
 using Markdown
 using InteractiveUtils
@@ -32,29 +32,29 @@ md" ## Cross sections of different configurations"
 
 # ╔═╡ 6cb742d3-519f-419f-8bc9-46b1c687a026
 begin
-		geometry = [30, 20, 10, 500]
-	    scale = [geometry[1]/sqrt(3),geometry[2]/sqrt(3),geometry[3],geometry[4]]
+	geometry = [30, 20, 10, 2000]
 end
 
-# ╔═╡ c9bedd54-b2f0-416e-ae9e-f3e83e9f7d76
+# ╔═╡ 5020c786-0560-4d00-a2ab-bca6b2c40fe7
 let
-	dbulk = 50
-	dstressor = 10
-	dcore = 30
-	geometry = [dcore, dbulk-dcore, dstressor, 500]
+	shape = 1
+
 	scale = [geometry[1]/sqrt(3),geometry[2]/sqrt(3),geometry[3],geometry[4]]
-	vis = GridVisualizer(Plotter=PlutoVista,layout=(1,1),resolution=(700,700))
-
-	shape = 2
-	
-	nrefs = 0
-	refinement_width = nothing
+	nrefs = 3
+	refinement_width = 1/4*geometry[3]
 	corner_refinement = false
-	manual_refinement = false
+	manual_refinement = true
+	rotate = 90
 
-	grid = nanowire_grid(; scale=scale, reflevel=nrefs)
-	gridplot!(vis[1,1],grid)
-	@info num_nodes(grid)
+    grid, cross_section = nanowire_tensorgrid_mirror(; scale=scale, shape=shape,
+        cut_levels=nothing, nrefs=nrefs, refinement_width=refinement_width,
+        corner_refinement=corner_refinement, manual_refinement=manual_refinement,
+		rotate=rotate)
+
+	vis = GridVisualizer(Plotter=PlutoVista,layout=(1,1),resolution=(700,700))
+	gridplot!(vis[1,1],cross_section)
+	@info "at cross section: $(num_nodes(cross_section)) (nodes), $(num_cells(cross_section)) (cells)"
+	@info "total number: $(num_nodes(grid)) (nodes), $(num_cells(grid)) (cells)"
 	reveal(vis)
 end
 
@@ -66,10 +66,13 @@ md" #### Additional refinement at corners."
 
 # ╔═╡ f9a24006-9153-4703-aa08-28277858746c
 let
-    grid, cross_section = nanowire_tensorgrid_mirror(; scale = scale,
+	scale = [geometry[1]/sqrt(3),geometry[2]/sqrt(3),geometry[3],geometry[4]]
+
+	grid, cross_section = nanowire_tensorgrid_mirror(; scale = scale,
         cut_levels = geometry[4]/2, nrefs = 1, refinement_width = nothing,
 		shape = 2, corner_refinement = true, manual_refinement = false)
-	@info num_nodes(grid)
+	@info "at cross section: $(num_nodes(cross_section)) (nodes), $(num_cells(cross_section)) (cells)"
+	@info "total number: $(num_nodes(grid)) (nodes), $(num_cells(grid)) (cells)"
 	gridplot(cross_section)
 end
 
@@ -78,6 +81,30 @@ md" #### Saving figure as a pdf."
 
 # ╔═╡ 1e3e6755-744a-4381-be41-05363664f335
 md" #### Highlighting a point in cross section. Useful to determine regions."
+
+# ╔═╡ 8401c66a-b676-4876-8104-17599f60f792
+md" #### Plotting with TetGen"
+
+# ╔═╡ c9bedd54-b2f0-416e-ae9e-f3e83e9f7d76
+let
+	dbulk = 50
+	dstressor = 10
+	dcore = 30
+	geometry = [dcore, dbulk-dcore, dstressor, 500]
+	scale = [geometry[1]/sqrt(3),geometry[2]/sqrt(3),geometry[3],geometry[4]]
+
+	nrefs = 1
+	refinement_width = nothing
+	corner_refinement = false
+	manual_refinement = false
+
+	grid = nanowire_grid(; scale=scale, reflevel=nrefs)
+
+	vis = GridVisualizer(Plotter=PlutoVista,layout=(1,1),resolution=(700,700))
+	gridplot!(vis[1,1],grid)
+	@info num_nodes(grid)
+	reveal(vis)
+end
 
 # ╔═╡ 65de36ff-5043-465f-beef-b2e2e7819ba2
 md" ## Functions from NanoWiresJulia package"
@@ -536,6 +563,9 @@ function assign_regions(p,builder,shape,refinement_width,nrefs,d1,d2,δ)
 
 end
 
+# ╔═╡ 285b27a9-d813-4ab1-ad66-0b0f2fe5091f
+md" Additional grid function:"
+
 # ╔═╡ 5bb8e9ca-8669-46a1-97d4-72a912465e9e
 function nanowire_tensorgrid_mirror!(; scale = [1,1,1,1], shape = 1,
 	nrefs = 1, z_nrefs = 2, z_levels_dist = 100, cut_levels = scale[4]/2,
@@ -667,89 +697,39 @@ function nanowire_tensorgrid_mirror!(; scale = [1,1,1,1], shape = 1,
 	return xgrid, xgrid_cross_section
 end
 
-# ╔═╡ 6a1e0b51-cf24-4f24-aaf0-39fe3beb8dcd
+# ╔═╡ a0387376-89a9-4af1-945a-251ee6d668cd
 let
-	dbulk = 50
-	dstressor = 10
-	dcore = 30
-	geometry = [dcore, dbulk-dcore, dstressor, 2000]
-	scale = [geometry[1]/sqrt(3),geometry[2]/sqrt(3),geometry[3],geometry[4]]
-	vis = GridVisualizer(Plotter=PlutoVista,layout=(1,1),resolution=(700,700))
-
 	shape = 2
-	
-	nrefs = 0
-	refinement_width = nothing
+
+	scale = [geometry[1]/sqrt(3),geometry[2]/sqrt(3),geometry[3],geometry[4]]
+	nrefs = 3
+	dbulk = geometry[1] + geometry[2]
+	dstressor = geometry[3]
+	refinement_width = (dstressor >= 10 ? 4 : dbulk/25+1)/sqrt(3)
 	corner_refinement = false
-	manual_refinement = false
+	manual_refinement = true
 	rotate = 0
 
     grid, cross_section = nanowire_tensorgrid_mirror!(; scale=scale, shape=shape,
         cut_levels=nothing, nrefs=nrefs, refinement_width=refinement_width,
-		corner_refinement=corner_refinement, manual_refinement=manual_refinement,
-		rotate=rotate)
-	gridplot!(vis[1,1],cross_section)
-	@info num_nodes(grid)
-	reveal(vis)
-end
-
-# ╔═╡ 5020c786-0560-4d00-a2ab-bca6b2c40fe7
-let
-	vis = GridVisualizer(Plotter=PlutoVista,layout=(1,1),resolution=(700,700))
-
-	shape = 1
-	
-	nrefs = 3
-	refinement_width = 1/4*geometry[3]
-	corner_refinement = false
-	manual_refinement = true
-	rotate = 45
-	
-    grid, cross_section = nanowire_tensorgrid_mirror!(; scale=scale, shape=shape,
-        cut_levels=nothing, nrefs=nrefs, refinement_width=refinement_width,
         corner_refinement=corner_refinement, manual_refinement=manual_refinement,
 		rotate=rotate)
-	gridplot!(vis[1,1],cross_section)
-	@info num_nodes(grid)
-	reveal(vis)
-end
 
-# ╔═╡ a0387376-89a9-4af1-945a-251ee6d668cd
-let
-	dbulk = 50
-	dstressor = 10
-	dcore = 20
-	geometry = [dcore, dbulk-dcore, dstressor, 500]
-	scale = [geometry[1]/sqrt(3),geometry[2]/sqrt(3),geometry[3],geometry[4]]
 	vis = GridVisualizer(Plotter=PlutoVista,layout=(1,1),resolution=(700,700))
-
-	shape = 2
-	
-	nrefs = 3
-	refinement_width = (dstressor >= 10 ? 4 : dbulk/25+1)/sqrt(3)
-	corner_refinement = false
-	manual_refinement = true
-	rotate = 45
-	
-    grid, cross_section = nanowire_tensorgrid_mirror!(; scale=scale, shape=shape,
-        cut_levels=nothing, nrefs=nrefs, refinement_width=refinement_width,
-        corner_refinement=corner_refinement, manual_refinement=manual_refinement,
-		rotate=rotate)
 	gridplot!(vis[1,1],cross_section)
-	@info num_nodes(grid)
+	@info "at cross section: $(num_nodes(cross_section)) (nodes), $(num_cells(cross_section)) (cells)"
+	@info "total number: $(num_nodes(grid)) (nodes), $(num_cells(grid)) (cells)"
 	reveal(vis)
+
+	PyPlot.savefig("cross_section.pdf")
 end
 
 # ╔═╡ f478eda3-6192-4f69-ba39-08bebeaa7847
 let
-	geometry = [30, 20, 15, 500]
-	
-	scale = [geometry[1],geometry[2],geometry[3]*2/sqrt(3),geometry[4]]
-	vis = GridVisualizer(Plotter=PlutoVista,layout=(1,1),resolution=(700,700))
-
 	shape = 3
-	
-	nrefs = 2
+
+	scale = [geometry[1],geometry[2],geometry[3]*2/sqrt(3),geometry[4]]
+	nrefs = 3
 	refinement_width = 1/4*geometry[2]
 	corner_refinement = false
 	manual_refinement = true
@@ -759,63 +739,23 @@ let
         cut_levels=nothing, nrefs=nrefs, refinement_width=refinement_width,
         corner_refinement=corner_refinement, manual_refinement=manual_refinement,
 		rotate=rotate)
-	gridplot!(vis[1,1],cross_section)
-	@info num_nodes(grid)
-	reveal(vis)
-end
 
-# ╔═╡ d60b1192-46be-4b6a-b48c-1144d6bf1257
-let
-	geometry = [7.5, 7.5, 50, 500]
-	
-	scale = [geometry[1],geometry[2],geometry[3]*sqrt(3)/2,geometry[4]]
 	vis = GridVisualizer(Plotter=PlutoVista,layout=(1,1),resolution=(700,700))
-
-	shape = 3
-	
-	nrefs = 2
-	refinement_width = nothing #1/2*geometry[2]
-	corner_refinement = false
-	manual_refinement = false
-	rotate = 0
-	
-    grid, cross_section = nanowire_tensorgrid_mirror!(; scale=scale, shape=shape,
-        cut_levels=nothing, nrefs=nrefs, refinement_width=refinement_width,
-        corner_refinement=corner_refinement, manual_refinement=manual_refinement,
-		rotate = false)
 	gridplot!(vis[1,1],cross_section)
-	@info num_nodes(grid)
-	reveal(vis)
-end
-
-# ╔═╡ ecf47d9b-efbb-467a-b924-3195a6cdd9cf
-let
-	geometry = [15*sqrt(3), 15*sqrt(3), 50, 500]
-	
-	scale = [geometry[1]/sqrt(3),geometry[2]/sqrt(3),geometry[3],geometry[4]]
-	vis = GridVisualizer(Plotter=PlutoVista,layout=(1,1),resolution=(700,700))
-
-	shape = 3
-	
-	nrefs = 0
-	refinement_width = nothing #1/4*geometry[2]
-	corner_refinement = false
-	manual_refinement = false
-	rotate = 0
-	
-    grid, cross_section = nanowire_tensorgrid_mirror!(; scale=scale, shape=shape,
-        cut_levels=nothing, nrefs=nrefs, refinement_width=refinement_width,
-        corner_refinement=corner_refinement, manual_refinement=manual_refinement,
-		rotate=rotate)
-	gridplot!(vis[1,1],cross_section)
-	@info num_nodes(grid)
+	@info "at cross section: $(num_nodes(cross_section)) (nodes), $(num_cells(cross_section)) (cells)"
+	@info "total number: $(num_nodes(grid)) (nodes), $(num_cells(grid)) (cells)"
 	reveal(vis)
 end
 
 # ╔═╡ cfd70770-9031-46cf-a0d6-321710b9899e
 let
+	scale = [geometry[1]/sqrt(3),geometry[2]/sqrt(3),geometry[3],geometry[4]]
+	dbulk = geometry[1] + geometry[2]
+	dstressor = geometry[3]
+	refinement_width = (dstressor >= 10 ? 4 : dbulk/25+1)/sqrt(3)
+
 	grid, cross_section = nanowire_tensorgrid_mirror!(; scale = scale,
-        cut_levels = nothing, nrefs = 2, refinement_width = 1/2*geometry[3]/sqrt(3),
+        cut_levels = nothing, nrefs = 2, refinement_width = refinement_width,
 		shape = 2, corner_refinement = false, manual_refinement = true, rotate = 0)
 	vis = GridVisualizer(Plotter=PyPlot)
 	gridplot!(vis,cross_section)
@@ -825,36 +765,52 @@ end
 
 # ╔═╡ 6e1c4ae9-15cc-436d-84b3-d9104bfd1b79
 let
-	shape = 3
+	shape = 1
+	nrefs = 2
 	rotate = 90
-	
+
+	scale = [geometry[1]/sqrt(3),geometry[2]/sqrt(3),geometry[3],geometry[4]]
+	if shape == 3
+		scale = [geometry[1],geometry[2],geometry[3]*2/sqrt(3),geometry[4]]
+	end
+	if shape == 1
+		α = 1/4*geometry[3]
+    elseif shape == 2
+		α = (geometry[3] >= 10 ? 4 : 1 + (geometry[1]+geometry[2])/25)/sqrt(3)
+    elseif shape == 3
+		α = 1/4*geometry[2]
+    end
+
+	### plot a thick red dot at given node
 	d1 = scale[1]
 	d2 = scale[1] + scale[2]
-	α = 1/2*geometry[3]/sqrt(3)
 	δ = scale[3]
+	if shape == 1
+		#ptx = sqrt(3)/4*d2
+		#pty = -3/4*d2-(δ+α)/2 # -d2-δ+d2/4+(δ-α)/2
+		ptx = 0
+		pty = -d2
+	elseif shape == 2 || shape == 3
+		#ptx = -sqrt(3)/2*d2-(δ+α)/2
+		#pty = d1/2
+		ptx = 0
+		pty = -sqrt(3)/2*d2
+	end
+	# clockwise rotation by angle θ
+	θ = rotate * pi/180
+	rptx = cos(θ)*ptx + sin(θ)*pty
+	rpty = -sin(θ)*ptx + cos(θ)*pty
+
+	@info "highligthed point: ($rptx,$rpty)"
 
 	grid, cross_section = nanowire_tensorgrid_mirror!(; scale = scale,
-		cut_levels = nothing, nrefs = 2, refinement_width = α, shape = shape,
+		cut_levels = nothing, nrefs = nrefs, refinement_width = α, shape = shape,
         corner_refinement = false, manual_refinement = true, rotate = rotate)
 
     gridvis = GridVisualizer(Plotter=PyPlot,dim=2)
 	gridplot!(gridvis,cross_section)
     ax = gridvis.subplots[1][:ax]
-	# plot a thick red dot at given node
-	if shape == 1
-		ptx = -3/4*d2-(δ+α)/2 # -d2-δ+d2/4+(δ-α)/2
-		pty = sqrt(3)/4*d2
-		ptx = -(geometry[1]+geometry[2])/sqrt(3)
-		pty = 0
-		@info ptx,pty
-	elseif shape == 2 || shape == 3 
-		ptx = -sqrt(3)/2*d2-(δ+α)/2
-		pty = d1/2
-		ptx = -(geometry[1]+geometry[2])/2
-		pty = 0
-		@info ptx,pty
-	end
-    ax.scatter(ptx,pty,linewidths=0.1,color="red",zorder=2) 
+    ax.scatter(rptx,rpty,linewidths=0.1,color="red",zorder=2)
     reveal(gridvis)
 end
 
@@ -864,17 +820,37 @@ md" # Bimetal"
 # ╔═╡ 1e6e16d0-a4e4-43e0-a67b-88656c1f5247
 let
 	scale = [50,100,500]
-	vis = GridVisualizer(Plotter=PlutoVista,layout=(1,1),resolution=(700,700))
+	nrefs = 1
+	mb = 0.25
+	hz = 10
 
+    grid, cross_section = bimetal_tensorgrid_uniform(; scale=scale,
+		nrefs=nrefs, material_border=mb, hz=hz)
+
+	vis = GridVisualizer(Plotter=PlutoVista,layout=(1,1),resolution=(700,700))
+	gridplot!(vis[1,1],cross_section)
+	@info "at cross section: $(num_nodes(cross_section)) (nodes), $(num_cells(cross_section)) (cells)"
+	@info "total number: $(num_nodes(grid)) (nodes), $(num_cells(grid)) (cells)"
+	reveal(vis)
+end
+
+# ╔═╡ 8f3027d3-fb5f-4f24-ab6b-4dc4526a4f99
+let
+	scale = [50,200,500]
 	nrefs = 1
 	mb = 0.5
-	hz = 50
-	
-    grid, xgrid_cross_section = bimetal_tensorgrid_uniform(; scale=scale, nrefs=nrefs, material_border=mb, hz=hz)
+
+    grid,xgrid_cross_section = bimetal_tensorgrid_uniform(; scale=scale,
+		nrefs=nrefs, material_border=mb)
+
+	vis = GridVisualizer(Plotter=PlutoVista,layout=(1,1),resolution=(700,700))
 	gridplot!(vis[1,1],grid)
 	@info num_nodes(grid)
 	reveal(vis)
 end
+
+# ╔═╡ 992280b9-e191-4c03-8291-f2dcb5df1027
+md" Additional grid functions:"
 
 # ╔═╡ f3203adb-6624-4cb8-bab7-825e9e2d956a
 function bimetal_tensorgrid_uniform1(; scale = [1,1,1], nrefs = 1, material_border = 0.5)
@@ -929,20 +905,6 @@ function bimetal_tensorgrid_uniform1(; scale = [1,1,1], nrefs = 1, material_bord
 
     return xgrid, xgrid_cross_section
 
-end
-
-# ╔═╡ 8f3027d3-fb5f-4f24-ab6b-4dc4526a4f99
-let
-	scale = [200,50,2000]
-	vis = GridVisualizer(Plotter=PlutoVista,layout=(1,1),resolution=(700,700))
-
-	nrefs = 1
-	mb = 0.5
-	
-    grid,xgrid_cross_section = bimetal_tensorgrid_uniform1(; scale=scale, nrefs=nrefs, material_border=mb)
-	gridplot!(vis[1,1],grid)
-	@info num_nodes(grid)
-	reveal(vis)
 end
 
 # ╔═╡ 79ded2f2-eb09-4114-abda-d79b6111fbb5
@@ -1004,33 +966,14 @@ function bimetal_tensorgrid_uniform2(; scale = [1,1,1], nrefs = 1, material_bord
 
 end
 
-# ╔═╡ 4664553e-d37a-41f7-a439-c833e8ba95a9
-let
-	scale = [20,100,200]
-	vis = GridVisualizer(Plotter=PlutoVista,layout=(1,1),resolution=(700,700))
-
-	nrefs = 1
-	mb = 0.5
-	hz = 50
-	
-    grid, xgrid_cross_section = bimetal_tensorgrid_uniform(; scale=scale, nrefs=nrefs, material_border=mb, hz=hz)
-	gridplot!(vis[1,1],grid)
-	@info num_nodes(grid)
-	reveal(vis)
-end
-
 # ╔═╡ Cell order:
 # ╠═6f8fc024-5e35-11ed-0828-8338123976ce
 # ╟─902d154e-5a51-4955-b3c7-9eda226a7125
 # ╟─087da6a2-271f-45c7-98b5-a34a852ca8e7
 # ╠═6cb742d3-519f-419f-8bc9-46b1c687a026
-# ╠═c9bedd54-b2f0-416e-ae9e-f3e83e9f7d76
-# ╠═6a1e0b51-cf24-4f24-aaf0-39fe3beb8dcd
 # ╠═5020c786-0560-4d00-a2ab-bca6b2c40fe7
 # ╠═a0387376-89a9-4af1-945a-251ee6d668cd
 # ╠═f478eda3-6192-4f69-ba39-08bebeaa7847
-# ╠═d60b1192-46be-4b6a-b48c-1144d6bf1257
-# ╠═ecf47d9b-efbb-467a-b924-3195a6cdd9cf
 # ╟─e3dd272a-59e9-4c3b-9e5c-ff0a061929e2
 # ╟─4a50a0fa-0a2f-43ca-981f-b2239ec73885
 # ╠═f9a24006-9153-4703-aa08-28277858746c
@@ -1038,6 +981,8 @@ end
 # ╠═cfd70770-9031-46cf-a0d6-321710b9899e
 # ╟─1e3e6755-744a-4381-be41-05363664f335
 # ╠═6e1c4ae9-15cc-436d-84b3-d9104bfd1b79
+# ╟─8401c66a-b676-4876-8104-17599f60f792
+# ╠═c9bedd54-b2f0-416e-ae9e-f3e83e9f7d76
 # ╟─65de36ff-5043-465f-beef-b2e2e7819ba2
 # ╟─0658ec32-ba72-42ee-b8e5-6b2cd62d88b9
 # ╟─5966b4ec-d215-44b7-952c-1ea5643dd1ac
@@ -1045,10 +990,11 @@ end
 # ╟─e502a079-e1f9-4484-9124-ecc9cf49363c
 # ╟─db067db2-2b9a-4bd4-ac8a-abd58fb24094
 # ╟─50565fe6-d590-42bd-90d9-5297c76df062
-# ╠═5bb8e9ca-8669-46a1-97d4-72a912465e9e
+# ╟─285b27a9-d813-4ab1-ad66-0b0f2fe5091f
+# ╟─5bb8e9ca-8669-46a1-97d4-72a912465e9e
 # ╟─4a50c199-2d06-420a-b797-3faa40ab14b8
 # ╠═1e6e16d0-a4e4-43e0-a67b-88656c1f5247
-# ╠═4664553e-d37a-41f7-a439-c833e8ba95a9
 # ╠═8f3027d3-fb5f-4f24-ab6b-4dc4526a4f99
-# ╠═f3203adb-6624-4cb8-bab7-825e9e2d956a
-# ╠═79ded2f2-eb09-4114-abda-d79b6111fbb5
+# ╟─992280b9-e191-4c03-8291-f2dcb5df1027
+# ╟─f3203adb-6624-4cb8-bab7-825e9e2d956a
+# ╟─79ded2f2-eb09-4114-abda-d79b6111fbb5

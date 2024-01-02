@@ -252,6 +252,7 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
     only_localsearch = true,
     eps_gfind = 1e-11,
     eps0 = nothing,
+    EST = AnisotropicDiagonalPrestrain,
     cut_direction = 3, # 1 = y-z-plane, 2 = x-z-plane, 3 = x-y-plane (default)
     Plotter = nothing,
     upscaling = 0,
@@ -510,11 +511,15 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
         
         ## calculate strain from gradient interpolation on cut
         ## todo modifications for elastic strain
-        for nv in [[nodevals_gradient,nodevals_ϵu], [nodevals_gradient1,nodevals_ϵu1], [nodevals_gradient2,nodevals_ϵu2]]
+        for nv in [[nodevals_gradient,nodevals_ϵu,0], [nodevals_gradient1,nodevals_ϵu1,1], [nodevals_gradient2,nodevals_ϵu2,3]]
             nv_∇u = nv[1]
             nv_ϵu = nv[2]
+            region = nv[3]
             for j = 1 : size(nv_∇u,2)
                 eval_strain!(strain, view(nv_∇u,:,j), strain_model)
+                if region !== 0
+                    eval_elastic_strain!(strain, eps0[region], EST)
+                end
                 nv_ϵu[:,j] .= strain
                 for k = 4 : 6
                     nv_ϵu[k,j] /= 2
@@ -716,10 +721,10 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
                 eval_strain!(strain, gradient, strain_model)
                 for k = 1 : 6
                     CutSolution_ϵu.entries[(k-1)*nnodes_uni + j] = strain[k]
-                    CutSolution_ϵu_elastic.entries[(k-1)*nnodes_uni + j] = strain[k]
                 end
-                for k = 1 : 3
-                    CutSolution_ϵu_elastic.entries[(k-1)*nnodes_uni + j] -= eps0_fefunc_uni.entries[(k-1)*nnodes_uni + j]
+                eval_elastic_strain!(strain, eps0_fefunc_uni.entries[[j, nnodes_uni + j, 2*nnodes_uni + j]], EST)
+                for k = 1 : 6
+                    CutSolution_ϵu_elastic.entries[(k-1)*nnodes_uni + j] = strain[k]
                 end
                 for k = 4 : 6
                     CutSolution_ϵu.entries[(k-1)*nnodes_uni + j] /= 2

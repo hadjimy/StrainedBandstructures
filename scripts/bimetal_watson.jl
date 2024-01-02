@@ -80,6 +80,7 @@ function get_defaults()
         "stressor_x" => 0.5,                            # x value for x-dependent stressor material
         "mstruct" => ZincBlende001,                     # material structure type
         "strainm" => NonlinearStrain3D,                 # strain model
+        "estrainm" => IsotropicPrestrain,               # elastic strain model
     )
     #dim = length(params["scale"])
     #params["strainm"] = dim == 2 ? NonlinearStrain2D : NonlinearStrain3D
@@ -120,19 +121,25 @@ function run_single(d = nothing; force::Bool = false, generate_vtk = true, Plott
 
     if d["scenario"] == 1
         ## compute lattice_mismatch
-        latmis = d["latmis"]
-        lc = [5, 5 * ( 1 + latmis )]
+        lc = [5, 5 * ( 1 + d["latmis"] )]
         @info "lattice mismatch: $(round(100*(lc[2]/lc[1]-1),digits=3)) %"
     elseif d["scenario"] == 2
         materials = [GaAs, AlInAs{d["stressor_x"]}]
         materialstructuretype = d["mstruct"]
         MD = set_data(materials, materialstructuretype)
 
-        nregions = length(MD.data)
-        lc::Array{Float64,1} = zeros(Float64,nregions)
-        for j = 1 : nregions
-            lc[j] = MD.data[j].LatticeConstants[1]
+        ## compute lattice_mismatch
+        if d["latmis"] == nothing
+            nregions = length(MD.data)
+            lc::Array{Float64,1} = zeros(Float64,nregions)
+            for j = 1 : nregions
+                lc[j] = MD.data[j].LatticeConstants[1]
+            end
+        else
+            lc = [5, 5 * ( 1 + d["latmis"] )]
         end
+        @info "lattice mismatch: $(round(100*(lc[2]/lc[1]-1),digits=3)) %"
+        @info lc
 
         ## save data
         fulld["MD"] = MD
@@ -173,7 +180,7 @@ end
 function main(d::Dict; Plotter = Plotter, verbosity = 0)
 
     ## unpack paramers
-    @unpack scenario, linsolver, latmis, misfit_strain, α, full_nonlin, use_emb, nsteps, maxits, tres, scale, mb, hz, femorder, nrefs, strainm, avgc, grid_type, bc = d
+    @unpack scenario, linsolver, latmis, misfit_strain, α, full_nonlin, use_emb, nsteps, maxits, tres, scale, mb, hz, femorder, nrefs, strainm, estrainm, avgc, grid_type, bc = d
     
     if scenario == 1
         ## compute Lame' coefficients μ and λ from ν and E
@@ -352,7 +359,8 @@ function get_lattice_mismatch_bimetal(avgc, geometry, lc)
         end
     end
 
-    return a .* (1 .+ a./2), a
+    #return a .* (1 .+ a./2), a
+    return a, a
 end
 
 
@@ -371,9 +379,9 @@ end
 function export_vtk(d = nothing; upscaling = 0, kwargs...)
     d = load_data(d; kwargs)
     filename_vtk = savename(d, ""; allowedtypes = watson_allowedtypes, accesses = watson_accesses)
-    solution = d["solution"]
+    @unpack solution, strainm, estrainm, misfit_strain = d
     repair_grid!(solution[1].FES.xgrid)
-    NanoWiresJulia.exportVTK(datadir(watson_datasubdir, filename_vtk), solution[1]; upscaling = upscaling, strain_model = d["strainm"], eps0 = d["misfit_strain"])
+    NanoWiresJulia.exportVTK(datadir(watson_datasubdir, filename_vtk), misfit_strain, solution[1], nothing; EST = estrainm, strain_model = strainm, P0strain = true, upscaling = upscaling)
 end
 
 function export_cuts(; 
@@ -391,7 +399,7 @@ function export_cuts(;
     @info "Exporting cuts..."
 
     # load all data
-    alldata = collect_results(datadir(watson_datasubdir))
+    alldata = collect_results(datadir(watson_datasubdir);subfolders=true)
 
     # filter and sort
     df = filter(:scale => ==(scale), alldata)
@@ -457,7 +465,7 @@ function postprocess(;
     @info "Starting postprocessing..."
 
     # load all data
-    alldata = collect_results(datadir(watson_datasubdir))
+    alldata = collect_results(datadir(watson_datasubdir);subfolders=true)
 
     # init plot
     fig, (ax1, ax2) = Plotter.subplots(2, 1);
@@ -494,7 +502,9 @@ function postprocess(;
             scale = data[:scale]
             # misfit_strain = data[:misfit_strain]
             ## compute bending statistics
-            bending_axis_end_points = [[scale[1],scale[2]/2,0],[scale[1],scale[2]/2,scale[3]]]
+            scaling = 1 - abs(2*mb-1)
+            bending_axis_end_points = [[scaling*scale[1],scale[2]/2,0],[scaling*scale[1],scale[2]/2,scale[3]]]
+            @info bending_axis_end_points
             angle, curvature, dist_bend, farthest_point = compute_statistics(solution[1].FES.xgrid, solution[1], bending_axis_end_points, eltype(solution[1].FES))
 
             # calculate analytic curvature (is it correct for 3D?)
@@ -503,10 +513,10 @@ function postprocess(;
             mb = data[:mb]
             #factor = 1/2*(α[2] - α[1])*(2 + α[1] + α[2])
             factor = α[2] - α[1]
-            h1 = data[:scale][1] * mb
-            h2 = data[:scale][1] * (1-mb)
-            m = h1/h2
             n = E[1]/E[2]
+            h1 = data[:scale][1] * (1-mb)
+            h2 = data[:scale][1] * (mb)
+            m = h1/h2
             analytic_curvature = abs( 6.0 * factor * (1+m)^2 / ((h1+h2) * ( 3*(1+m)^2 + (1+m*n)*(m^2+1/(m*n)))) )
             analytic_arc = scale[3]*(m^4 + 4*m*n + 6*m^2*n + 4*m^3*n + n^2 + m*(m^3 + 4*n + 3*m*n)*α[1] + n*(3*m^2 + 4*m^3 + n)*α[2])/(m^4 + 4*m*n + 6*m^2*n + 4*m^3*n + n^2)
             analytic_arc = mod(analytic_arc,2*π/analytic_curvature)
@@ -519,6 +529,7 @@ function postprocess(;
             #@info "dist_bend = $(dist_bend)"
             @info "simulation ===> R = $(1/curvature) | curvature = $curvature | bending angle = $(angle)°"
             @info "analytic   ===> R = $(1/analytic_curvature) | curvature = $analytic_curvature | bending angle = $(analytic_angle)°"
+            println()
             push!(lattice_mismatch, data[:latmis])
             push!(sim_angle, angle)
             push!(ana_angle, analytic_angle)
@@ -528,7 +539,9 @@ function postprocess(;
         for i in eachindex(sim_curvature)
             println(sim_curvature[i])
         end
-            
+
+        @info sim_curvature
+
         @info "Plotting ..."
         lattice_mismatch *= 100
         ax1.plot(lattice_mismatch, 1e3 .* sim_curvature, color = color[j], marker = marker[j])
@@ -536,7 +549,7 @@ function postprocess(;
         ax2.plot(lattice_mismatch, sim_angle, color = color[j], marker = marker[j])
         ax2.plot(lattice_mismatch, ana_angle, color = color[j], linestyle = "--")
 
-        ax1.set_title("Core: $(Int(mb*100))%, Stressor: $(Int((1-mb)*100))%")
+        ax1.set_title("Stressor: $(Int(mb*100))%, Core: $(Int((1-mb)*100))%")
         append!(legend, ["simulation, d = $(scale[1])","analytic, d = $(scale[1])"])
         ax1.set_ylabel("curvature (μm^-1)")
         ax2.set_ylabel("angle (degrees)")

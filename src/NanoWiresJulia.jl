@@ -59,7 +59,9 @@ include("strains.jl")
 export StrainType
 export LinearStrain, LinearStrain2D, LinearStrain3D
 export NonlinearStrain, NonlinearStrain2D, NonlinearStrain3D
-export eval_strain!
+export PreStrainType
+export IsotropicPrestrain, AnisotropicDiagonalPrestrain
+export eval_strain!, eval_elastic_strain!
 
 include("pdeoperators.jl")
 export PDEDisplacementOperator, PDEPolarisationOperator

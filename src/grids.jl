@@ -687,7 +687,7 @@ end
 
 function nanowire_tensorgrid(; scale = [1,1,1,1], nrefs = 1, cut_levels = scale[4]/2, α = nothing, Plotter = nothing, z_levels_dist = 100, version = 1)
 
-    @info "Generating nanowire grid for scale = $scale"
+    @info "Generating nanowire grid for geometry = $scale"
 
     builder=SimplexGridBuilder(Generator=Triangulate)
 
@@ -979,33 +979,41 @@ end
 function bimetal_tensorgrid_uniform(; scale = [1,1,1], nrefs = 1, material_border = 0.5, hz = 50)
 
 	W = scale[1]; H = scale[2]; Z = scale[3]
+    h1 = W*(1-material_border)
+    h2 = W*material_border
 
-    @info "Generating bimetal 3D grid for scale = $scale and middle interface at $material_border of height $H"
+    @info "Generating bimetal 3D grid for scale = $scale and middle interface at $material_border (core = $h1, stressor = $h2)"
 
-    h1 = W*material_border
-    h2 = W-h1
+    # cross-section refinement
+    indicator = 1 - abs(2*material_border - 1) # hat function with maximum value equal to 1 and zero at boundaries of [0,1] interval
+    nrefs_cross_section = -1*(indicator <= 0.2) + 0*(0.2 < indicator <= 0.6) + 1*(indicator > 0.6)
+    if nrefs_cross_section < 0 && nrefs > 0
+        nrefs += nrefs_cross_section
+    end
+
     factor = 2.0^-nrefs
-
     hx = min(h1,h2)*factor
 	hy = hx
 	hz = min(hz,Z)
 
-	if nrefs == 0
-		XX = 0:hx:W
-	else
-	    XX = Array{Float64,1}(0:(h1-hx/2)*factor:h1-hx/2)
-		T = Array{Float64,1}(LinRange(h1-hx/2,h1+hx/2,5))
-        append!(XX, T[2:end-1])
-        append!(XX, Array{Float64,1}(h1+hx/2:(W-(h1+hx/2))*factor:W))
-	end
+    XX = 0:hx:W
     YY = 0:hy:H
     ZZ = Array{Float64,1}(0:hz:Z)
 
-    xgrid = simplexgrid(XX,YY)
+	if nrefs_cross_section >= 0
+        # refined points around material_border
+        T = Array{Float64,1}(LinRange(h2-hx/2,h2+hx/2,3))
 
-	# assigning region numbers: core region = 1, stressor region = 2
-    cellmask!(xgrid,[h1,0],[W,H],1)
-	cellmask!(xgrid,[0,0],[h1,H],2)
+        # Combine the uniform partition and refined points
+        XX = sort(unique([XX; T]))
+    end
+
+    xgrid = simplexgrid(XX,YY)
+    xgrid = uniform_refine(xgrid,nrefs_cross_section)
+
+    # assigning region numbers: core region = 1, stressor region = 2
+    cellmask!(xgrid,[h2,0],[h2,H],1)
+    cellmask!(xgrid,[0,0],[h2,H],2)
 
     xgrid_cross_section = deepcopy(xgrid)
     xgrid = simplexgrid(xgrid, ZZ)
@@ -1018,16 +1026,16 @@ function bimetal_tensorgrid_uniform(; scale = [1,1,1], nrefs = 1, material_borde
     # 10 = top stressor
 
     # boundary faces
-    bfacemask!(xgrid,[W,0,0],[W,H,Z],1)   # side core
-    bfacemask!(xgrid,[h1,0,0],[W,0,Z],2)  # side core left
-    bfacemask!(xgrid,[0,0,0],[h1,0,Z],3)  # side stressor right
-    bfacemask!(xgrid,[0,0,0],[0,H,Z],4)   # side stressor
-    bfacemask!(xgrid,[0,H,0],[h1,H,Z],5)  # side stressor left
-    bfacemask!(xgrid,[h1,H,0],[W,H,Z],6)  # side core left
-    bfacemask!(xgrid,[h1,0,0],[W,H,0],7)  # bottom core
-    bfacemask!(xgrid,[0,0,0],[h1,H,0],8)  # bottom stressor
-    bfacemask!(xgrid,[h1,0,Z],[W,H,Z],9)  # top core
-    bfacemask!(xgrid,[0,0,Z],[h1,H,Z],10) # top stressor
+    bfacemask!(xgrid,[h2,0,0],[W,0,Z],1)  # side core left
+    bfacemask!(xgrid,[W,0,0],[W,H,Z],2)   # side core
+    bfacemask!(xgrid,[h2,H,0],[W,H,Z],3)  # side core right
+    bfacemask!(xgrid,[0,H,0],[h2,H,Z],4)  # side stressor left
+    bfacemask!(xgrid,[0,0,0],[0,H,Z],5)   # side stressor
+    bfacemask!(xgrid,[0,0,0],[h2,0,Z],6)  # side stressor right
+    bfacemask!(xgrid,[h2,0,0],[W,H,0],7)  # bottom core
+    bfacemask!(xgrid,[0,0,0],[h2,H,0],8)  # bottom stressor
+    bfacemask!(xgrid,[h2,0,Z],[W,H,Z],9)  # top core
+    bfacemask!(xgrid,[0,0,Z],[h2,H,Z],10) # top stressor
 
     return xgrid, xgrid_cross_section
 end
@@ -1092,7 +1100,7 @@ function nanowire_tensorgrid_mirror(; scale = [1,1,1,1], shape = 1,
     refinement_width = nothing, corner_refinement = false, manual_refinement = false,
     rotate = true, max_nodes = 20)
 
-    @info "Generating nanowire grid for scale = $scale"
+    @info "Generating nanowire grid for geometry = $scale"
 
     builder = SimplexGridBuilder(Generator=Triangulate)
     p::Array{Int64,1} = zeros(Int64,max_nodes)

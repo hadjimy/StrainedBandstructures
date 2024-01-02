@@ -4,7 +4,7 @@
 ##
 ## note: since (1 + ∇u) is not symmetric, it is tested with full gradient ∇v
 
-struct PDEDisplacementOperator{T, ST <: StrainType, STTType, FTypeVoigtCompress <: Function, FTypeAddGradUxStress <: Function}
+struct PDEDisplacementOperator{T, ST <: StrainType, EST <: PreStrainType, STTType, FTypeVoigtCompress <: Function, FTypeAddGradUxStress <: Function}
     STT::STTType     # stress tensor ℂ
     misfit_strain::Vector{Vector{T}}
     α::Vector{T}
@@ -16,7 +16,7 @@ struct PDEDisplacementOperator{T, ST <: StrainType, STTType, FTypeVoigtCompress 
 end
 
 
-(op::PDEDisplacementOperator{T,ST})(result, input, qpinfo) where {T,ST} = begin
+(op::PDEDisplacementOperator{T,ST,EST})(result, input, qpinfo) where {T,ST,EST} = begin
     ## input = [∇u] written as a vector of length dim^2
     ## result = 1/(1 + α) * (1 + ∇u) ℂ (ϵ(u) - ϵ_0(u)) written as a vector of length dim^2 (to be multiplied by ∇v)
 
@@ -25,11 +25,23 @@ end
     eval_strain!(result, input, ST)
 
     ## subtract misfit strain
-    @views result[1:op.dim] .-= op.misfit_strain[region][1:op.dim]
+    eval_elastic_strain!(result, op.misfit_strain[region], EST)
 
     ## multiply strain in result with isotropic stress tensor
     ## and store in input cache (all in Voigt notation)
     apply_elasticity_tensor!(input, result, op.STT[region]; offset = op.cache_offset)
+
+    ## multiply inverse M from left and right
+    input[op.cache_offset+1] /= (1. + op.misfit_strain[region][1])*(1. + op.misfit_strain[region][1])
+    input[op.cache_offset+2] /= (1. + op.misfit_strain[region][2])*(1. + op.misfit_strain[region][2])
+    if op.dim == 3
+        input[op.cache_offset+3] /= (1. + op.misfit_strain[region][3])*(1. + op.misfit_strain[region][3])
+        input[op.cache_offset+4] /= (1. + op.misfit_strain[region][2])*(1. + op.misfit_strain[region][3])
+        input[op.cache_offset+5] /= (1. + op.misfit_strain[region][1])*(1. + op.misfit_strain[region][3])
+        input[op.cache_offset+6] /= (1. + op.misfit_strain[region][1])*(1. + op.misfit_strain[region][2])
+    else
+        input[op.cache_offset+3] /= (1. + op.misfit_strain[region][1])*(1. + op.misfit_strain[region][2])
+    end
 
     ## uncompress stress in Voigt notation (input) into full matrix (result)
     op.uncompress_voigt!(result, input; offset = op.cache_offset)
@@ -39,16 +51,18 @@ end
         op.add_gradu_x_stress!(result, input; factor = op.emb[1], offset = op.cache_offset)
     end
 
-    ## multiply by -1/(1 + α) * I
-    result .*= -1 ./ (1 .+ op.α[region])
+    ## multiply by determinant M
+    for j = 1 : op.dim
+        result .*= 1. + op.misfit_strain[region][j]
+    end
 
     return nothing
 end
 
-function PDEDisplacementOperator(STT, ST, misfit_strain, α, emb, dim)
+function PDEDisplacementOperator(STT, ST, EST, misfit_strain, α, emb, dim)
     uncompress_voigt! = (dim == 2) ? uncompress_voigt2D! : uncompress_voigt3D!
     add_gradu_x_stress! = (dim == 2) ? add_gradu_x_stress2D! : add_gradu_x_stress3D!
-    return PDEDisplacementOperator{Float64, ST, typeof(STT), typeof(uncompress_voigt!), typeof(add_gradu_x_stress!)}(STT,misfit_strain,α,emb,uncompress_voigt!,add_gradu_x_stress!,dim,dim^2)
+    return PDEDisplacementOperator{Float64, ST, EST, typeof(STT), typeof(uncompress_voigt!), typeof(add_gradu_x_stress!)}(STT,misfit_strain,α,emb,uncompress_voigt!,add_gradu_x_stress!,dim,dim^2)
 end
 
 
@@ -105,25 +119,28 @@ end
 
 
 function get_displacement_operator_new(
-    STT::Vector{<:ElasticityTensorType},     # stress tensor ℂ
-    ST::Type{<:StrainType},     # strain type ϵ (e.g. Nonlinear3D)
-    misfit_strain,              # misfit strain ϵ0 (constant scalar or vector)
-    α;                          # average values (constant scalar or vector)
-    displacement_id = 1,        # unknown id for displacement
+    STT::Vector{<:ElasticityTensorType},    # stress tensor ℂ
+    ST::Type{<:StrainType},                 # strain type ϵ (e.g. Nonlinear3D)
+    EST::Type{<:PreStrainType},         # elastic strain type ϵ (e.g. MultiplicativeElasticStrain)
+    misfit_strain,                          # misfit strain ϵ0 (constant scalar or vector)
+    α;                                      # average values (constant scalar or vector)
+    displacement_id = 1,                    # unknown id for displacement
     displacement = displacement_id,  # unknown for displacement
-    dim = 2,                    # dimension
-    emb = [1],                  # embedding coefficients for complicated nonlinear features
-                                # (overwrite with your array to use with embedding solver)
-    regions = [0],              # regions where the operator integrates
-    bonus_quadorder = 2)        # quadrature order
+    dim = 2,                                # dimension
+    emb = [1],                              # embedding coefficients for complicated nonlinear features
+                                            # (overwrite with your array to use with embedding solver)
+    regions = [0],                          # regions where the operator integrates
+    bonus_quadorder = 2)                    # quadrature order
     
-    return NonlinearOperator(PDEDisplacementOperator(STT, ST, misfit_strain, α, emb, dim),                                      # operator for test function
-                         [grad(displacement)];
-                         regions = regions,                             # regions where nonlinearform integrates
-                         bonus_quadorder = bonus_quadorder,             # quadrature order
-                         extra_inputsize = 6,
-                         sparse_jacobians = false,
-                         store = false)                                 # activate Newton derivatives (false won't work here)
+    return NonlinearOperator(
+                PDEDisplacementOperator(STT, ST, EST, misfit_strain, α, emb, dim),                                      # operator for test function
+                [grad(displacement)];
+                regions = regions,                             # regions where nonlinearform intergrates
+                dependencies = "I",                            # make it item-dependent (to get the region)
+                bonus_quadorder = bonus_quadorder,             # quadrature order
+                extra_inputsize = 6,
+                sparse_jacobians = false,
+                store = false)                                 # activate Newton derivatives (false won't work here)
 end
 
 function get_displacement_operator(

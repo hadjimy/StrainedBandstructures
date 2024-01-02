@@ -31,6 +31,7 @@ function get_defaults()
         "shell_x" => 0.3,                               # x value for x-dependent shell material
         "stressor_x" => 0.5,                            # x value for x-dependent stressor material
         "strainm" => NonlinearStrain3D,                 # strain model
+        "estrainm" => IsotropicPrestrain,               # elastic strain model
         "full_nonlin" => true,                          # use complicated model (ignored if linear strain is used)
         "use_emb" => true,                              # use embedding (true) or damping (false) solver ?
         "nsteps" => 5,                                  # number of embedding steps in embedding solver
@@ -55,7 +56,7 @@ function get_defaults()
         "cut_levels_pos" => [0.5],                      # position of cut-levels w.r.t. nanowire length. i.e., cut_levels = cut_levels_pos * geometry[4]
         "cross_section" => 1,                           # geometry of stressor; either version 1,2 or 3
         "corner_refinement" => false,                   # assigning more nodes at interface corners
-        "rotate" =>  true                               # rotate cross section by 90 degrees clockwise
+        "rotate" =>  0                                  # rotate cross section clockwise
     )
     return params
 end
@@ -97,6 +98,12 @@ function main(d = nothing; verbosity = 0, Plotter = nothing, force::Bool = false
         set_params!(d; kwargs...)
     end
 
+    ## raise a warning if anisotropic material is used with isotropic elastic strain_model
+    if d["mstruct"] != ZincBlende001 && d["estrainm"] == IsotropicPrestrain
+        @error "ArgumentError: Use IsotropicPrestrain only with ZincBlende001 materials"
+        return
+    end
+
     println("***Solving nanowire problem***")
 
     ## set log level
@@ -119,7 +126,7 @@ function main(d = nothing; verbosity = 0, Plotter = nothing, force::Bool = false
     #######################
     ### MODEL PARAMETER ###
     #######################
-    @unpack geometry, fully_coupled, full_nonlin, strainm, avgc, femorder, femorder_P, polarisation = d
+    @unpack geometry, fully_coupled, full_nonlin, strainm, estrainm, avgc, femorder, femorder_P, polarisation = d
     @assert fully_coupled == false "fully coupled model not yet implemented"
     ## setup parameter Array (which is also returned and can be used later to embedd)
     parameters::Array{Float64,1} = [full_nonlin ? 1 : 0]
@@ -204,7 +211,7 @@ function main(d = nothing; verbosity = 0, Plotter = nothing, force::Bool = false
     assign_operator!(Problem, BoundaryOperator)
 
     ## add (nonlinear) operators for displacement equation
-    DisplacementOperator = get_displacement_operator_new(MD.TensorC, strainm, eps0, a; dim = 3, displacement = u, emb = parameters, regions = 1:nregions, bonus_quadorder = quadorder_D)
+    DisplacementOperator = get_displacement_operator_new(MD.TensorC, strainm, estrainm, eps0, a; dim = 3, displacement = u, emb = parameters, regions = 1:nregions, bonus_quadorder = quadorder_D)
     assign_operator!(Problem, DisplacementOperator)
 
     ## add (linear) operators for polarisation equation
@@ -252,6 +259,7 @@ function main(d = nothing; verbosity = 0, Plotter = nothing, force::Bool = false
 
     ## call solver
     @unpack nsteps, tres, maxits, linsolver, use_lowlevel_solver = d
+
     if (use_lowlevel_solver)
         PolarisationOperator = nothing
         Solution, residual = solve_lowlevel(xgrid,
@@ -366,11 +374,7 @@ function get_lattice_misfit_nanowire(lcavg_case, MD::MaterialData, geometry, ful
                 a[j] = (lc[region][j] - lc_avg[j])/lc_avg[j]
             end
 
-            if full_nonlin == false
-                eps0[region][j] = a[j]
-            else
-                eps0[region][j] = a[j] * (1 + a[j]/2)
-            end
+            eps0[region][j] = a[j]
         end
     end
 
@@ -392,14 +396,20 @@ function load_data(d = nothing; watson_datasubdir = watson_datasubdir, kwargs...
 end
 
 function export_vtk(d = nothing; upscaling = 0, kwargs...)
-    d = load_data(d; kwargs...)
+    if d == nothing
+        d = load_data(d; kwargs...)
+    end
     filename_vtk = savename(d, ""; allowedtypes = watson_allowedtypes, accesses = watson_accesses)
-    solution = d["solution"]
+    @unpack solution, strainm, estrainm, eps0, polarisation = d
     repair_grid!(solution[1].FES.xgrid)
-    exportVTK(datadir(watson_datasubdir, filename_vtk), solution[1]; P0strain = true, upscaling = upscaling, strain_model = d["strainm"], eps0 = d["eps0"])
+    if polarisation
+        exportVTK(datadir(watson_datasubdir, filename_vtk), eps0, solution[1], solution[2]; EST = estrainm, strain_model = strainm, P0strain = true, upscaling = upscaling)
+    else
+        exportVTK(datadir(watson_datasubdir, filename_vtk), eps0, solution[1]; EST = estrainm, strain_model = strainm, P0strain = true, upscaling = upscaling)
+    end
 end
 
-function postprocess(filename = nothing; watson_datasubdir = watson_datasubdir, Plotter = nothing, export_vtk = true, cross_section_cuts = true, cut_levels = "auto", simple_cuts = true, cut_npoints = 200, vol_cut = "auto", eps_gfind = 1e-12, upscaling = 0, kwargs...)
+function postprocess(filename = nothing; watson_datasubdir = watson_datasubdir, Plotter = nothing, export_sol = true, cross_section_cuts = true, cut_levels = "auto", simple_cuts = true, cut_npoints = 200, vol_cut = "auto", eps_gfind = 1e-12, upscaling = 0, kwargs...)
 
     if typeof(filename) <: Dict
         d = filename
@@ -414,25 +424,20 @@ function postprocess(filename = nothing; watson_datasubdir = watson_datasubdir, 
     ## compute statistics
     @unpack solution, geometry, cross_section, rotate = d
 
-    bending_axis_end_points = cross_section == 1 ? [[0,-(geometry[1]+geometry[2])/sqrt(3),0],[0,-(geometry[1]+geometry[2])/sqrt(3),geometry[4]]] : [[0,-(geometry[1]+geometry[2])/2,0],[0,-(geometry[1]+geometry[2])/2,geometry[4]]]
-    if rotate == true
-        bending_axis_end_points[1] = reverse(bending_axis_end_points[1], 1, 2)
-        bending_axis_end_points[2] = reverse(bending_axis_end_points[2], 1, 2)
-    end
-    @info bending_axis_end_points
+    cross_section_points = cross_section == 1 ? [0,-(geometry[1]+geometry[2])/sqrt(3)] : [0,-(geometry[1]+geometry[2])/2]
+    # rotate cross section points by angle theta
+    theta = rotate * pi/180
+	rotated_pointx = cos(theta)*cross_section_points[1] + sin(theta)*cross_section_points[2]
+	rotated_pointy = -sin(theta)*cross_section_points[1] + cos(theta)*cross_section_points[2]
+
+    bending_axis_end_points = [[rotated_pointx,rotated_pointy,0],[rotated_pointx,rotated_pointy,geometry[4]]]
     angle, curvature, dist_bend, farthest_point = compute_statistics(solution[1].FES.xgrid, solution[1], bending_axis_end_points, eltype(solution[1].FES))
     d["angle"] = angle
     d["curvature"] = curvature
 
     # export vtk files
-    if export_vtk == true
-        @unpack polarisation, strainm, eps0 = d
-        filename_vtk = savename(d, ""; allowedtypes = watson_allowedtypes, accesses = watson_accesses)
-        if polarisation
-            exportVTK(datadir(watson_datasubdir, filename_vtk), solution[1], solution[2]; P0strain = true, upscaling = upscaling, strain_model = strainm, eps0 = eps0)
-        else
-            exportVTK(datadir(watson_datasubdir, filename_vtk), solution[1]; P0strain = true, upscaling = upscaling, strain_model = strainm, eps0 = eps0)
-        end
+    if export_sol == true
+        export_vtk(d)
     end
 
     ## save again
