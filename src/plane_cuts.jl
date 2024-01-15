@@ -553,7 +553,14 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
         kwargs[:grad_displacement] = nodevals_gradient
         kwargs[:strain] = nodevals_ϵu
  #       kwargs[:elastic_strain] = nodevals_ϵu_elastic
+
+        kwargs1 = Dict()
+        kwargs1[:elastic_strain] = nodevals_ϵu1
+        kwargs2 = Dict()
+        kwargs2[:elastic_strain] = nodevals_ϵu2
         ExtendableGrids.writeVTK(target_folder_cut_level * "simple_cut_$(cut_level)_data.vtu", cut_grid; kwargs...)
+        ExtendableGrids.writeVTK(target_folder_cut_level * "simple_cut_$(cut_level)_data_subgrid1.vtu", subgrid1; kwargs1...)
+        ExtendableGrids.writeVTK(target_folder_cut_level * "simple_cut_$(cut_level)_data_subgrid2.vtu", subgrid2; kwargs2...)
         
         component_names = ["XX","YY","ZZ","YZ","XZ","XY"]
         xmin = minimum(view(xCoordinatesCutPlane,a,:))
