@@ -1,7 +1,7 @@
 module nanowire
 
 using NanoWiresJulia
-using GradientRobustMultiPhysics
+using ExtendableFEM
 using ExtendableGrids
 using ExtendableSparse
 using GridVisualize
@@ -46,7 +46,7 @@ function get_defaults()
         "femorder_P" => 1,                              # order of the finite element discretisation (polarisation)
         "nrefs" => 0,                                   # number of uniform refinements before solve
         "avgc" => 2,                                    # lattice number calculation method (average case)
-        "polarisation" => true,                         # also solve for polarisation
+        "polarisation" => false,                         # also solve for polarisation
         "fully_coupled" => false,                       # parameter for later when we have the full model
         "postprocess" => false,                         # angle calculation, vtk files, cuts
         "linsolver" => ExtendableSparse.MKLPardisoLU,   # linear solver (try ExtendableSparse.MKLPardisoLU or ExtendableSparse.LUFactorization)
@@ -201,42 +201,45 @@ function main(d = nothing; verbosity = 0, Plotter = nothing, force::Bool = false
     ###########################
 
     ## create PDEDescription and add displacement unknown
-    Problem = PDEDescription("nanowire bending")
-    add_unknown!(Problem; unknown_name = "u", equation_name = "displacement equation")
-    subiterations = [[1]]
+    Problem = ProblemDescription("nanowire bending")
+    u = Unknown("u"; name = "displacement")
+    assign_unknown!(Problem, u)
 
     ## add Dirichlet boundary data on front
     regions_bc = [4,5,6]  # 4 = core bottom, 5 = shell bottom, 6 = stressor bottom
-    add_boundarydata!(Problem, 1, regions_bc, HomogeneousDirichletBoundary)
+    BoundaryOperator = HomogeneousBoundaryData(u; regions = regions_bc)
+    assign_operator!(Problem, BoundaryOperator)
 
     ## add (nonlinear) operators for displacement equation
-    for r = 1 : nregions
-        if fully_coupled
-            # todo
-        else
-           # add_operator!(Problem, 1, get_displacement_operator(MD.TensorC[r], strainm, eps0[r][1], a[r]; dim = 3, emb = parameters, regions = [r], bonus_quadorder = quadorder_D))
-        end
-    end
-    add_operator!(Problem, 1, get_displacement_operator_new(MD.TensorC, strainm, estrainm, eps0, a; dim = 3, emb = parameters, regions = 1:nregions, bonus_quadorder = quadorder_D))
+    DisplacementOperator = get_displacement_operator_new(MD.TensorC, strainm, estrainm, eps0, a; dim = 3, displacement = u, emb = parameters, regions = 1:nregions, bonus_quadorder = quadorder_D)
+    assign_operator!(Problem, DisplacementOperator)
 
     ## add (linear) operators for polarisation equation
     if polarisation
-        add_unknown!(Problem; unknown_name = "V_P", equation_name = "polarisation potential equation")
+        V = Unknown("V"; name = "polarisatio potential")
+        assign_unknown!(Problem, V)
         k0 = 8.854e-3 # 8.854e-12 C/(V m) = 1e9*8.854e-12 C/(V nm)
         kr::Array{Float64,1} = [MD.data[1].kappar, MD.data[2].kappar, MD.data[end].kappar]
-        subiterations = fully_coupled ? [[1,2]] : [[1], [2]]
-
-        ## add nonlinear operators for displacement
-        for r = 1 : nregions
-            if fully_coupled
-                # todo
-            else
-                add_operator!(Problem, [2,1], get_polarisation_from_strain_operator(MD.TensorE[r], strainm, eps0[r][1]; dim = 3, regions = [r]))
-                add_operator!(Problem, [2,2], get_polarisation_laplacian_operator(; κ = k0 * kr[r], dim = 3, regions = [r]))
-            end
-        end
+        #PolarisationOperator = PDEPolarisationOperator(MD.TensorE, strainm, eps0, k0 * kr, 3)
+        #assign_operator!(Problem, PolarisationOperator)
+    else
+        PolarisationOperator = nothing
     end
-    @show Problem
+    # if polarisation
+    #     
+    #     
+    #     subiterations = fully_coupled ? [[1,2]] : [[1], [2]]
+
+    #     ## add nonlinear operators for displacement
+    #     for r = 1 : nregions
+    #         if fully_coupled
+    #             # todo
+    #         else
+    #             assign_operator!(Problem, get_polarisation_from_strain_operator(MD.TensorE[r], strainm, eps0[r][1]; dim = 3, regions = [r]))
+    #             assign_operator!(Problem, get_polarisation_laplacian_operator(; κ = k0 * kr[r], dim = 3, regions = [r]))
+    #         end
+    #     end
+    # end
 
     ##############
     ### SOLVER ###
@@ -258,12 +261,10 @@ function main(d = nothing; verbosity = 0, Plotter = nothing, force::Bool = false
     @unpack nsteps, tres, maxits, linsolver, use_lowlevel_solver = d
 
     if (use_lowlevel_solver)
-        DisplacementOperator = PDEDisplacementOperator(MD.TensorC, strainm, estrainm, eps0, a, parameters, 3) #get_displacement_operator_new(MD.TensorC, strainm, eps0, a; dim = 3, emb = parameters, regions = 1:nregions, bonus_quadorder = quadorder_D)
-        PolarisationOperator = PDEPolarisationOperator(MD.TensorE, strainm, eps0, k0 * kr, 3)
+        PolarisationOperator = nothing
         Solution, residual = solve_lowlevel(xgrid,
-                                Problem.BoundaryOperators,
-                                Problem.GlobalConstraints,
-                                DisplacementOperator,
+                                BoundaryOperator,
+                                DisplacementOperator.kernel,
                                 PolarisationOperator,
                                 parameters;
                                 linsolver = linsolver,
@@ -274,22 +275,23 @@ function main(d = nothing; verbosity = 0, Plotter = nothing, force::Bool = false
                                 coupled = false,
                                 maxiterations = [maxits, 1])
     else
-        if polarisation
-            Solution, residual = solve_by_embedding(Problem, xgrid, parameters;
-                            subiterations = subiterations,
-                            nsteps = [nsteps, 1],
-                            linsolver = linsolver,
-                            FETypes = [FEType_D, FEType_P],
-                            target_residual = [tres, tres],
-                            maxiterations = [maxits, 1])
-        else
-            Solution, residual = solve_by_embedding(Problem, xgrid, parameters;
-                            subiterations = subiterations,
-                            nsteps = [nsteps],
-                            linsolver = linsolver,
-                            FETypes = [FEType_D],
-                            target_residual = [tres],
-                            maxiterations = [maxits])
+        FES = [FESpace{FEType_D}(xgrid), FESpace{FEType_P}(xgrid)]
+        SC = nothing
+        solution = FEVector(FES; tags = Problem.unknowns)
+        parameters_target = deepcopy(parameters)
+        residual = 0.0
+        for j = 1 : nsteps
+            parameters .= nsteps == 1 ? parameters_target : (j-1)/(nsteps-1) .* parameters_target
+            println("Solving problem with parameter parameters = $parameters (embedding step $j/$(nsteps))...")
+        
+            solution, SC = ExtendableFEM.solve(Problem, FES[1], SC;
+                init = solution,
+                method_linear = linsolver,
+                return_config = true,
+                maxiterations = maxits,
+                target_residual = tres
+            )
+            residual = SC.statistics.nonlinear_residuals[end]
         end
     end
 

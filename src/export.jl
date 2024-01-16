@@ -14,21 +14,17 @@ function exportVTK(filename, eps0, Displacement::FEVectorBlock{T,Tv,Ti,FEType,AP
 
     ## prepare strain interpolation
     size_ϵu = Int((ncomponents+1)*ncomponents/2)
-    misfit = nothing # misfit for computing elastic strain
-    function interpolate_postprocess(result, input, item)
+    misfit = [[0,0,0],[0,0,0],[0,0,0]]
+    function strain_postprocess(result, input, qpinfo)
         # input = [∇u]
-        # item contains item information and item[3] is the region number
         eval_strain!(result, input, strain_model)
-        if misfit !== nothing
-            eval_elastic_strain!(result, misfit[item[3]], EST)
-        end
+        eval_elastic_strain!(result, misfit[qpinfo.region], EST)
         # result cointains strain in Voigt notation; divide by 2 to calculate the off-diagonal strain components
         result[4] /= 2
         result[5] /= 2
         result[6] /= 2
         return nothing
     end
-    interpolate_action = Action(interpolate_postprocess, [size_ϵu, ncomponents^2]; dependencies = "I")
 
     ## upscaling (= interpolate to P1 on finer grid)
     Solution_plot = nothing
@@ -39,22 +35,25 @@ function exportVTK(filename, eps0, Displacement::FEVectorBlock{T,Tv,Ti,FEType,AP
         if Polarisation !== nothing
             FES_polarisation = FESpace{H1P1{1}}(xgrid_plot)
             Solution_plot = FEVector([FES, FES_strain, FES_strain, FES_polarisation])
-            interpolate!(Solution_plot[4], Polarisation; use_cellparents = true, eps = eps_gfind)
+            lazy_interpolate!(Solution_plot[4], [Polarisation], [id(1)]; use_cellparents = true, eps = eps_gfind)
         else
             Solution_plot = FEVector([FES, FES_strain, FES_strain])
         end
-        interpolate!(Solution_plot[1], Displacement; use_cellparents = true, eps = eps_gfind)
-        interpolate!(Solution_plot[2], Displacement; operator = Gradient, postprocess = interpolate_action, use_cellparents = true, eps = eps_gfind)
+        lazy_interpolate!(Solution_plot[1], [Displacement], [id(1)]; use_cellparents = true, eps = eps_gfind)
+        lazy_interpolate!(Solution_plot[2], [Displacement], [grad(1)]; postprocess = strain_postprocess, use_cellparents = true, eps = eps_gfind)
+        
+        ElasticStrain = FEVector(FESpace{P0strain ? L2P0{size_ϵu} : H1P1{size_ϵu}}(xgrid_plot))
         misfit = eps0
-        interpolate!(Solution_plot[3], Displacement; operator = Gradient, postprocess = interpolate_action, use_cellparents = true, eps = eps_gfind)
+        lazy_interpolate!(ElasticStrain[1], [Displacement], [grad(1)]; postprocess = strain_postprocess, eps = eps_gfind)
     else
-        Strain = FEVector("ϵu",FESpace{P0strain ? L2P0{size_ϵu} : H1P1{size_ϵu}}(xgrid_plot))
-        interpolate!(Strain[1], Displacement; operator = Gradient, postprocess = interpolate_action, eps = eps_gfind)
-        ElasticStrain = FEVector("elϵu",FESpace{P0strain ? L2P0{size_ϵu} : H1P1{size_ϵu}}(xgrid_plot))
+        Strain = FEVector(FESpace{P0strain ? L2P0{size_ϵu} : H1P1{size_ϵu}}(xgrid_plot))
+        lazy_interpolate!(Strain[1], [Displacement], [grad(1)]; postprocess = strain_postprocess, eps = eps_gfind)
+        ElasticStrain = FEVector(FESpace{P0strain ? L2P0{size_ϵu} : H1P1{size_ϵu}}(xgrid_plot))
         misfit = eps0
-        interpolate!(ElasticStrain[1], Displacement; operator = Gradient, postprocess = interpolate_action, eps = eps_gfind)
-    if Polarisation !== nothing
-            Solution_plot = [Displacement, Strain[1], ElasticStrain[1], Polarisation]
+        lazy_interpolate!(ElasticStrain[1], [Displacement], [grad(1)]; postprocess = strain_postprocess, eps = eps_gfind)
+
+        if Polarisation !== nothing
+            Solution_plot = [Displacement, Strain[1], Strain2[1], Polarisation]
         else
             Solution_plot = [Displacement, Strain[1], ElasticStrain[1]]
         end
