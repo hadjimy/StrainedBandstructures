@@ -15,7 +15,7 @@ For example to run the simulation for a GaAs/In0.5Al0.5As nanowire with 50 nm th
 ```
 julia> include("scripts/nanowire.jl")
 julia> using PyPlot
-julia> nanowire.main(geometry=[30,20,10,2000],stressor_x=0.5,Plotter=PyPlot,force=true,postprocess=true)
+julia> nanowire.main(geometry=[30,20,10,2000],stressor_x=0.5,Plotter=PyPlot,postprocess=true)
 ```
 
 The code by default uses linear FEM elements without any grid refinement and a ZB-(001) crystal orientation. 
