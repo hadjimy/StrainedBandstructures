@@ -22,7 +22,7 @@ The code by default uses linear FEM elements without any grid refinement and a Z
 These settings (and many others) can be tuned by changing the papameters in `scripts/nanowire.jl`.
 
 The above commands will generate a .jld2 file with the solution data and two .vtu files with the bent and unbent nanowire that can be imported in Paraview for visualizing the solution.
-In addition it will create cross-section cuts and output the elastic strain and other solution derivatives on cross-sections perpedicular to the bending direction (by default a middle cross-section is chosen).
+In addition, cross-section cuts are created and elastic strain and other solution derivatives are computed on cross-sections perpedicular to the bending direction (by default a middle cross-section is chosen).
 
 ### Scripts
 
