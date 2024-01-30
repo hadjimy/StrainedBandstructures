@@ -1,4 +1,4 @@
-# NanoWiresJulia
+# StrainedBandstructures
 
 ## Working examples
 
