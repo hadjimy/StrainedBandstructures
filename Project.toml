@@ -29,8 +29,8 @@ Triangulate = "f7e6ffb2-c36d-4f8f-a77e-16e897189344"
 XLSX = "fdbf4ff8-1666-58a4-91e7-1b58723a45e0"
 
 [compat]
-ExtendableFEM = "^0.0.17"
-ExtendableFEMBase = "^0.1"
+ExtendableFEM = "^0.0.16"
+ExtendableFEMBase = "^0.0.17"
 ExtendableGrids = "^1.1.0"
 GridVisualize = "1.1.7"
 Pardiso = "0.5.3"

@@ -424,13 +424,14 @@ function postprocess(filename = nothing; watson_datasubdir = watson_datasubdir, 
     ## compute statistics
     @unpack solution, geometry, cross_section, rotate = d
 
-    cross_section_points = cross_section == 1 ? [0,-(geometry[1]+geometry[2])/sqrt(3)] : [0,-(geometry[1]+geometry[2])/2]
-    # rotate cross section points by angle theta
-    theta = rotate * pi/180
-	rotated_pointx = cos(theta)*cross_section_points[1] + sin(theta)*cross_section_points[2]
-	rotated_pointy = -sin(theta)*cross_section_points[1] + cos(theta)*cross_section_points[2]
+    # cross_section_points = cross_section == 1 ? [0,-(geometry[1]+geometry[2])/sqrt(3)] : [0,-(geometry[1]+geometry[2])/2]
+    # # rotate cross section points by angle theta
+    # theta = rotate * pi/180
+	# rotated_pointx = cos(theta)*cross_section_points[1] + sin(theta)*cross_section_points[2]
+	# rotated_pointy = -sin(theta)*cross_section_points[1] + cos(theta)*cross_section_points[2]
 
-    bending_axis_end_points = [[rotated_pointx,rotated_pointy,0],[rotated_pointx,rotated_pointy,geometry[4]]]
+    #bending_axis_end_points = [[rotated_pointx,rotated_pointy,0],[rotated_pointx,rotated_pointy,geometry[4]]]
+    bending_axis_end_points = [[0,0,0],[0,0,geometry[4]]]
     angle, curvature, dist_bend, farthest_point = compute_statistics(solution[1].FES.xgrid, solution[1], bending_axis_end_points, eltype(solution[1].FES))
     d["angle"] = angle
     d["curvature"] = curvature

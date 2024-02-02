@@ -273,11 +273,11 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
         xgrid_original = Solution_original[1].FES.xgrid
         xgrid = uniform_refine(xgrid_original, upscaling)
         FESup = FESpace{eltype(Solution_original[1].FES)}(xgrid)
-        #FESup = [FESpace{eltype(Solution_original[1].FES)}(xgrid), FESpace{eltype(Solution_original[2].FES)}(xgrid)]
-        Solution = FEVector{Float64}(["u (upscaled)", "P (upscaled)"], FESup)
+        Solution = FEVector(FESup)
         @info "INTERPOLATING TO UPSCALED GRID..."
         interpolate!(Solution[1], Solution_original[1])
-        interpolate!(Solution[2], Solution_original[2])
+        #interpolate!(Solution[2], Solution_original[2])
+        DisplacementGradient = continuify(Solution[1], Gradient)
         @info "STARTING CUTTING..."
     else
         Solution = Solution_original
@@ -463,9 +463,12 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
         cut_grid[CellGeometries] = VectorOfConstants{ElementGeometries,Int}(Triangle2D,length(faces4level));
         cut_grid[CellRegions] = xgrid[CellRegions][xgrid[FaceCells][1,faces4level]]
         cut_grid[CoordinateSystem] = Cartesian2D
-        cut_grid[BFaceRegions] = ones(Int32,0)
-        cut_grid[BFaceNodes] = zeros(Int32,2,0)
-        cut_grid[BFaceCells] = zeros(Int32,2,0)
+        #cut_grid[BFaceRegions] = ones(Int32,0)
+        #cut_grid[BFaceNodes] = zeros(Int32,2,0)
+        #cut_grid[BFaceCells] = zeros(Int32,2,0)
+        cut_grid[BFaceRegions] = ones(Int32,1)
+        cut_grid[BFaceNodes] = Matrix{Int32}([1 2;])
+        #cut_grid[BFaceCells] = zeros(Int32,2,0)
         cut_grid[BFaceGeometries] = VectorOfConstants{ElementGeometries,Int}(Edge1D, 0)
 
         ## get subgrid for each region
@@ -475,6 +478,8 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
         ## get parent nodes for each subgrid
         subnodes1 = subgrid1[ExtendableGrids.NodeInParent]
         subnodes2 = subgrid2[ExtendableGrids.NodeInParent]
+        subgrid1[Coordinates] = cut_grid[Coordinates][:,subnodes1]
+        subgrid2[Coordinates] = cut_grid[Coordinates][:,subnodes2]
 
         ## compute nodevalues for nodes of each subgrid
         nodevals_gradient1 = nodevalues(Solution[1], Gradient; regions = [1,2], nodes = nodes4level[subnodes1])
@@ -541,8 +546,6 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
             end
         end
         cut_grid2D[Coordinates] = xCoordinatesCutPlane
-        subgrid1[Coordinates] = xCoordinatesCutPlane[:,subnodes1]
-        subgrid2[Coordinates] = xCoordinatesCutPlane[:,subnodes2]
         CF2D = CellFinder(cut_grid2D)
 
         ## write data into csv file
@@ -561,8 +564,43 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
         ExtendableGrids.writeVTK(target_folder_cut_level * "simple_cut_$(cut_level)_data.vtu", cut_grid; kwargs...)
         ExtendableGrids.writeVTK(target_folder_cut_level * "simple_cut_$(cut_level)_data_subgrid1.vtu", subgrid1; kwargs1...)
         ExtendableGrids.writeVTK(target_folder_cut_level * "simple_cut_$(cut_level)_data_subgrid2.vtu", subgrid2; kwargs2...)
-        
+
+
+        ## data into txt files
+        subgrid1[Coordinates] = xCoordinatesCutPlane[:,subnodes1]
+        subgrid2[Coordinates] = xCoordinatesCutPlane[:,subnodes2]
+        coords1 = subgrid1[Coordinates]
+        coords2 = subgrid2[Coordinates]
+        @info "Writing coordinates of subgrids..."
+        filename_eAB = target_folder_cut_level * "coordinates_subgrid1.dat"
+        io = open(filename_eAB, "w")
+        for n = 1 : length(subnodes1)
+            @printf(io, "%.6f %.6f\n",coords1[1,n],coords1[2,n])
+        end
+        close(io)
+        filename_eAB = target_folder_cut_level * "coordinates_subgrid2.dat"
+        io = open(filename_eAB, "w")
+        for n = 1 : length(subnodes2)
+            @printf(io, "%.6f %.6f\n",coords2[1,n],coords2[2,n])
+        end
+        close(io)
         component_names = ["XX","YY","ZZ","YZ","XZ","XY"]
+        for c = 1 : 6
+            @info "Writing elastic strain distribution file for e_elastic$(component_names[c]) on subgrids..."
+            filename_eAB = target_folder_cut_level * 'e' * component_names[c] * "_elastic_subgrid1.dat"
+            io = open(filename_eAB, "w")
+            for n = 1 : length(subnodes1)
+                @printf(io, "%.6f\n",nodevals_ϵu1[c,n])
+            end
+            close(io)
+            filename_eAB = target_folder_cut_level * 'e' * component_names[c] * "_elastic_subgrid2.dat"
+            io = open(filename_eAB, "w")
+            for n = 1 : length(subnodes2)
+                @printf(io, "%.6f\n",nodevals_ϵu2[c,n])
+            end
+            close(io)
+        end
+
         xmin = minimum(view(xCoordinatesCutPlane,a,:))
         xmax = maximum(view(xCoordinatesCutPlane,a,:))
         ymin = minimum(view(xCoordinatesCutPlane,b,:))
@@ -587,7 +625,7 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
                 else
 	                GridVisualize.save(filename, plt; Plotter = Plotter)
                 end
-                plt = scalarplot([subgrid1,subgrid2], cut_grid2D, [view(nodevals_ϵu1,k,:),view(nodevals_ϵu2,k,:)], Plotter = Plotter; xlimits = (xmin-2,xmax+2), ylimits = (ymin-2,ymax+2), title = "ϵ_elastic_$(component_names[k]) on cut", fignumber = 1)
+                plt = scalarplot([subgrid1,subgrid2], cut_grid2D, [view(nodevals_ϵu1,k,:),view(nodevals_ϵu2,k,:)], Plotter = Plotter; title = "ϵ_elastic_$(component_names[k]) on cut", fignumber = 1)
                 filename = target_folder_cut_level * "simple_cut_subgrid_$(cut_level)_ϵ_elastic_$(component_names[k]).png"
                 if isdefined(Plotter,:savefig)
                     Plotter.savefig(filename)
