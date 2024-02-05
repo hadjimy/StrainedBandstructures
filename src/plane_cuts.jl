@@ -64,7 +64,7 @@ function plane_cut(xgrid::ExtendableGrid, plane_equation_coeffs; project_data = 
     # find nodes along boundary
     edge_on_boundary = zeros(Bool,num_sources(xgrid[GradientRobustMultiPhysics.EdgeNodes]))
     xFaceNodes = xgrid[FaceNodes]
-    xFaceCells=xgrid[FaceCells]
+    xFaceCells = xgrid[FaceCells]
     xFaceEdges = xgrid[FaceEdges]
     xCellEdges = xgrid[GradientRobustMultiPhysics.CellEdges]
     for j = 1 : size(xFaceNodes,2)
@@ -251,6 +251,7 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
     cut_npoints = 200, 
     only_localsearch = true,
     eps_gfind = 1e-11,
+    deform = false,
     eps0 = nothing,
     EST = AnisotropicDiagonalPrestrain,
     cut_direction = 3, # 1 = y-z-plane, 2 = x-z-plane, 3 = x-y-plane (default)
@@ -350,9 +351,40 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
         end
     end
 
+    function get_cutgrid(nodes4level, faces4level)
+        ## map original 3D coordinates onto 2D plane
+        nnodes_cut = length(nodes4level)
+        xCoordinatesCut3D = zeros(Float64,3,nnodes_cut)
+        for j = 1 : nnodes_cut
+            for k = 1 : 3
+                xCoordinatesCut3D[k,j] = xCoordinates[k,nodes4level[j]]
+            end
+        end
+
+        node_permute = zeros(Int32,size(xCoordinates,2))
+        node_permute[nodes4level] = 1 : length(nodes4level)
+
+        ## construct simple cut grid
+        cut_grid=ExtendableGrid{Float64,Int32}()
+        cut_grid[Coordinates] = xCoordinatesCut3D
+        cut_grid[CellNodes] = node_permute[xFaceNodes[:,faces4level]] # view not possible here
+        cut_grid[CellGeometries] = VectorOfConstants{ElementGeometries,Int}(Triangle2D,length(faces4level));
+        cut_grid[CellRegions] = xgrid[CellRegions][xgrid[FaceCells][1,faces4level]]
+        cut_grid[CoordinateSystem] = Cartesian2D
+        #cut_grid[BFaceRegions] = ones(Int32,0)
+        #cut_grid[BFaceNodes] = zeros(Int32,2,0)
+        #cut_grid[BFaceCells] = zeros(Int32,2,0)
+        cut_grid[BFaceRegions] = ones(Int32,1)
+        cut_grid[BFaceNodes] = Matrix{Int32}([1 2;])
+        #cut_grid[BFaceCells] = zeros(Int32,2,0)
+        cut_grid[BFaceGeometries] = VectorOfConstants{ElementGeometries,Int}(Edge1D, 0)
+        return cut_grid
+    end
+
     for l = 1 : length(cut_levels)
 
         cut_level = cut_levels[l]
+        @info "ENTERING cut_level = $(cut_level)"
 
         # make cut_level subdirectory
         mkpath(datadir(target_folder_cut, "z=$(cut_level)/"))
@@ -366,8 +398,6 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
         end
         @show length(faces4level)
         nodes4level = unique(view(xFaceNodes,:,faces4level))
-        node_permute = zeros(Int32,size(xCoordinates,2))
-        node_permute[nodes4level] = 1 : length(nodes4level)
         nnodes_cut = length(nodes4level)
         start_cell::Int = xFaceCells[1,faces4level[1]]
 
@@ -393,18 +423,24 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
             c = 3
         end
         result = deepcopy(x[1])
-        for i = 1 : 3
-            # find cell
-            cells[i] = gFindLocal!(xref[i], CF, x[i]; icellstart = start_cell, eps = eps_gfind)
-            if cells[i] == 0
-                @warn "local search cell search unexpectedly failed, using brute force..."
-                cells[i] = gFindBruteForce!(xref[i], CF, x[i])
+
+        if deform
+            ## the three points that define the plane on the reference state
+            ## are displaced to get three points on the transformed plane
+            for i = 1 : 3
+                # find cell
+                cells[i] = gFindLocal!(xref[i], CF, x[i]; icellstart = start_cell, eps = eps_gfind)
+                @info cells[i]
+                if cells[i] == 0
+                    @warn "local search cell search unexpectedly failed, using brute force..."
+                    cells[i] = gFindBruteForce!(xref[i], CF, x[i])
+                end
+                @assert cells[i] > 0
+                # evaluate displacement
+                evaluate_bary!(result,PE,xref[i],cells[i])
+                ## displace point
+                x[i] .+= result
             end
-            @assert cells[i] > 0
-            # evaluate displacement
-            evaluate_bary!(result,PE,xref[i],cells[i])
-            ## displace point
-            x[i] .+= result
         end
 
         ## normal = (x[1]-x[2]) × (x[1]-x[3])
@@ -438,38 +474,18 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
         elseif cut_direction == 3
             R = [cos(beta) 0 sin(beta); 0 1 0; -sin(beta) 0 cos(beta)] * [1 0 0; 0 cos(alpha) -sin(alpha); 0 sin(alpha) cos(alpha)]
         end
+
+        ## that is the rotation matrix that maps points from the reference domain to the x-y plane times a fixed z coordinates
         @show R
 
 
         #### SIMPLE CUT GRIDS ###
 
-        ## interpolate identity and gradient on nodes4level
+        ## interpolate identity at nodes4level
         nodevals = nodevalues(Solution[1], Identity; continuous = true, nodes = nodes4level)
 
-##        cut_grid = displace_mesh!(xgrid, Solution[1])
-        ## map original 3D coordinates onto 2D plane
-        xCoordinatesCut3D = zeros(Float64,3,nnodes_cut)
-        for j = 1 : nnodes_cut
-            ## displaced nodes
-            for k = 1 : 3
-                xCoordinatesCut3D[k,j] = xCoordinates[k,nodes4level[j]] + nodevals[k,j]
-            end
-        end
-
-        ## construct simple cut grid
-        cut_grid=ExtendableGrid{Float64,Int32}()
-        cut_grid[Coordinates] = xCoordinatesCut3D
-        cut_grid[CellNodes] = node_permute[xFaceNodes[:,faces4level]] # view not possible here
-        cut_grid[CellGeometries] = VectorOfConstants{ElementGeometries,Int}(Triangle2D,length(faces4level));
-        cut_grid[CellRegions] = xgrid[CellRegions][xgrid[FaceCells][1,faces4level]]
-        cut_grid[CoordinateSystem] = Cartesian2D
-        #cut_grid[BFaceRegions] = ones(Int32,0)
-        #cut_grid[BFaceNodes] = zeros(Int32,2,0)
-        #cut_grid[BFaceCells] = zeros(Int32,2,0)
-        cut_grid[BFaceRegions] = ones(Int32,1)
-        cut_grid[BFaceNodes] = Matrix{Int32}([1 2;])
-        #cut_grid[BFaceCells] = zeros(Int32,2,0)
-        cut_grid[BFaceGeometries] = VectorOfConstants{ElementGeometries,Int}(Edge1D, 0)
+        ## get displaced cut_grid from function defined above
+        cut_grid = get_cutgrid(nodes4level, faces4level)
 
         ## get subgrid for each region
         subgrid1 = subgrid(cut_grid, [1,2]; boundary = false)
@@ -481,17 +497,29 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
         subgrid1[Coordinates] = cut_grid[Coordinates][:,subnodes1]
         subgrid2[Coordinates] = cut_grid[Coordinates][:,subnodes2]
 
+        ## interpolate data on cut_grid
+        @info "Interpolating data on cut mesh..."
+        nodevals_gradient = nodevalues(Solution[1], Gradient; nodes = nodes4level)
+        nodevals_ϵu = zeros(Float64,6,nnodes_cut)
+        nodevals_ϵu_elastic = zeros(Float64,6,nnodes_cut)
+        
         ## compute nodevalues for nodes of each subgrid
         nodevals_gradient1 = nodevalues(Solution[1], Gradient; regions = [1,2], nodes = nodes4level[subnodes1])
         nodevals_gradient2 = nodevalues(Solution[1], Gradient; regions = [3], nodes = nodes4level[subnodes2])
         nodevals_ϵu1 = zeros(Float64,6,size(nodevals_gradient1,2))
         nodevals_ϵu2 = zeros(Float64,6,size(nodevals_gradient2,2))
 
-        ## interpolate data on cut_grid
-        @info "Interpolating data on cut mesh..."
-        nodevals_gradient = nodevalues(DisplacementGradient[1], Identity; nodes = nodes4level)
-        nodevals_ϵu = zeros(Float64,6,nnodes_cut)
-        nodevals_ϵu_elastic = zeros(Float64,6,nnodes_cut)
+        ## now displace the grid if deform is true
+        xCoordinatesCut3D = cut_grid[Coordinates]
+        if deform
+            for j = 1 : nnodes_cut
+                for k = 1 : 3
+                    xCoordinatesCut3D[k,j] += nodevals[k,j]
+                end
+            end
+            subgrid1[Coordinates] = cut_grid[Coordinates][:,subnodes1]
+            subgrid2[Coordinates] = cut_grid[Coordinates][:,subnodes2]
+        end
 
         ## interpolate eps0 on cut_grid
         eps0_fefunc = FEVector(FESpace{L2P0{3}}(cut_grid))
@@ -508,14 +536,8 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
                 eps0_fefunc.entries[(cell-1)*3 + 3] = eps0[xCellRegions_cut[cell]][3]
             end
         end
-        #interpolate!(eps0_fefunc[1], eps0_datafunc)
 
-        # CAREFULL!!! next line somehow modified material map (how???)
-        #nodevals_ϵ0 = nodevalues(eps0_fefunc[1])
-
-        
-        ## calculate strain from gradient interpolation on cut
-        ## todo modifications for elastic strain
+        ## calculate strain from gradient interpolation on (undisplaced) cut
         for nv in [[nodevals_gradient,nodevals_ϵu,0], [nodevals_gradient1,nodevals_ϵu1,1], [nodevals_gradient2,nodevals_ϵu2,3]]
             nv_∇u = nv[1]
             nv_ϵu = nv[2]
@@ -532,14 +554,10 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
             end
         end
 
-        ## 2D coordinates of the simple grid
+        ## get 2D coordinates of the simple grid by applying the rotation R
         cut_grid2D = deepcopy(cut_grid)
         xCoordinatesCutPlane = zeros(Float64,2,nnodes_cut)
         for j = 1 : nnodes_cut
-            ## displaced nodes moved to plane
-            #for n = 1 : 2, k = 1 : 3
-            #    xCoordinatesCutPlane[n,j] += R[n,k] * (xCoordinatesCut3D[k,j])
-            #end
             for k = 1 : 3
                 xCoordinatesCutPlane[1,j] += R[a,k] * (xCoordinatesCut3D[k,j])
                 xCoordinatesCutPlane[2,j] += R[b,k] * (xCoordinatesCut3D[k,j])
@@ -643,20 +661,15 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
         #### UNIFORM CUT GRIDS ###
         if export_uniform_data
 
-
-            ## displace grid
-            displace_mesh!(xgrid, Solution[1])
-
-            ## map original 3D coordinates onto 2D plane
-            xCoordinatesCutPlane = zeros(Float64,3,nnodes_cut)
-            for j in nodes4level
-                ## displaced nodes moved to plane
-                for n = 1 : 3, k = 1 : 3
-                    xCoordinatesCutPlane[n,node_permute[j]] += R[n,k] * (xCoordinates[k,j])
-                end
-            end
+            ## start with the same grid coordinates from the simple grid
+            ## (possibly deformed if deform = true)
+            xCoordinatesCutPlane = xCoordinatesCut3D
 
             ## restrict coordinates to [x,y] plane
+            xmin = minimum(view(xCoordinatesCutPlane,a,:))
+            xmax = maximum(view(xCoordinatesCutPlane,a,:))
+            ymin = minimum(view(xCoordinatesCutPlane,b,:))
+            ymax = maximum(view(xCoordinatesCutPlane,b,:))
             max_z = maximum(view(xCoordinatesCutPlane,cut_direction,:))
             min_z = minimum(view(xCoordinatesCutPlane,cut_direction,:))
 
@@ -672,17 +685,18 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
             xmax += d[1]*0.01
             ymin -= d[2]*0.01
             ymax += d[2]*0.01
-            h_uni = [xmax - xmin,ymax - ymin] ./ (cut_npoints-1)
+            h_uni = d ./ (cut_npoints-1)
             Xuni = zeros(Float64,0)
             Yuni = zeros(Float64,0)
             for j = 0 : cut_npoints - 1
-                push!(Xuni, h_uni[1]*j)
-                push!(Yuni, h_uni[2]*j)
+                push!(Xuni, xmin + h_uni[1]*j)
+                push!(Yuni, ymin + h_uni[2]*j)
             end
             @info "Creating uniform grid with h_uni = $h_uni for bounding box ($xmin,$xmax) x ($ymin,$ymax)"
             xgrid_uni = simplexgrid(Xuni,Yuni)
             xCoordinatesUni = xgrid_uni[Coordinates]
             nnodes_uni = size(xCoordinatesUni,2)
+            xgrid_uni[Coordinates] = [xCoordinatesUni; z*ones(Float64, nnodes_uni)']
 
             ## interpolate data on uniform cut_grid
             @info "Interpolating data on uniform cut mesh..."
@@ -692,48 +706,45 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
             FES2D_P = FESpace{H1P1{1}}(xgrid_uni)
             CutSolution_u = FEVector(FES2D)
             CutSolution_∇u = FEVector(FES2D_∇u)
-            #CutSolution_∇u2 = FEVector{Float64}("∇u (on 2D cut at z = $(cut_level))", FES2D_∇u)
-            #CutSolution_∇u3 = FEVector{Float64}("∇u (on 2D cut at z = $(cut_level))", FES2D_∇u)
             CutSolution_ϵu = FEVector(FES2D_ϵ)
             CutSolution_ϵu_elastic = FEVector(FES2D_ϵ)
             CutSolution_P = FEVector(FES2D_P)
             eps0_fefunc_uni = FEVector(FESpace{H1P1{3}}(xgrid_uni))
 
+            # # mapping from 3D coordinates on cut_grid to 2D coordinates on xgrid_uni
+            # invR::Matrix{Float64} = inv(R)
+            # z_offset = 0.0
+            # function xtrafo!(x3D,x2D)
+            #     for j = 1 : 3
+            #         x3D[j] = invR[j,1] * (x2D[1] + xmin) + invR[j,2] * (x2D[2] + ymin) + invR[j,3] * (z + z_offset) # invR * [x2D[1],x2D[2],z]
+            #         ## now x3D is the coordinate of the point in the displaced mesh
+            #         ## we also need the x3D in the original mesh
+            #     end
+            #     return nothing
+            # end
 
-            # mapping from 3D coordinates on cut_grid to 2D coordinates on xgrid_uni
-            invR::Matrix{Float64} = inv(R)
-            z_offset = 0.0
-            function xtrafo!(x3D,x2D)
-                for j = 1 : 3
-                    x3D[j] = invR[j,1] * (x2D[1] + xmin) + invR[j,2] * (x2D[2] + ymin) + invR[j,3] * (z + z_offset) # invR * [x2D[1],x2D[2],z]
-                    ## now x3D is the coordinate of the point in the displaced mesh
-                    ## we also need the x3D in the original mesh
-                end
-                return nothing
-            end
-
-            # mapping from 3D coordinates on simple cut_grid to 2D coordinates on xgrid_uni
-            function xtrafo2!(x2D_out,x2D_in)
-                x2D_out[1] = x2D_in[1] + xmin
-                x2D_out[2] = x2D_in[2] + ymin
-                return nothing
-            end
+            # # mapping from 3D coordinates on simple cut_grid to 2D coordinates on xgrid_uni
+            # function xtrafo2!(x2D_out,x2D_in)
+            #     x2D_out[1] = x2D_in[1] + xmin
+            #     x2D_out[2] = x2D_in[2] + ymin
+            #     return nothing
+            # end
 
             #interpolate ϵ0 onto uniform grid
-            lazy_interpolate!(eps0_fefunc_uni[1], eps0_fefunc_orig, [id(1)]; xtrafo = xtrafo!, start_cell = start_cell, not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
+            lazy_interpolate!(eps0_fefunc_uni[1], eps0_fefunc_orig, [id(1)]; start_cell = start_cell, not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
 
             # evaluate u on deformed mesh
             # 2D coordinates on uniform cut mesh need to be transformed to 3D coordinates in displaced 3D grid by xtrafo
-            lazy_interpolate!(CutSolution_u[1], Solution, [id(1)]; xtrafo = xtrafo!, start_cell = start_cell, not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
+            lazy_interpolate!(CutSolution_u[1], Solution, [id(1)]; start_cell = start_cell, not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
 
             ## evaluate ∇u on deformed mesh
             ## since we interpolate on faces of tetrahedrons wehere the gradient jumps
             ## we evaluate on both sides of the faces and take some averaging
             ## to ensure that the interpolate! functions evaluates on the correct side
             ## we add some negative and positive offset to the z coordinate and call the interpolate! two times
-            lazy_interpolate!(CutSolution_∇u[1], DisplacementGradient, [id(1)]; start_cell = start_cell, xtrafo = xtrafo!, not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
+            lazy_interpolate!(CutSolution_∇u[1], DisplacementGradient, [id(1)]; start_cell = start_cell, not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
             if length(Solution) > 1
-                lazy_interpolate!(CutSolution_P[1], Solution, [id(2)]; start_cell = start_cell, xtrafo = xtrafo!, not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
+                lazy_interpolate!(CutSolution_P[1], Solution, [id(2)]; start_cell = start_cell, not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
             end
 
             ## postprocess gradient to gradients on undisplaced mesh
@@ -799,8 +810,8 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
                     xtest[j] += xCoordinatesUni[j, xCellNodesUni[n,cu]]
                 end
                 xtest ./= 3.0
-                xtest[1] += xmin
-                xtest[2] += ymin
+                #xtest[1] += xmin
+                #xtest[2] += ymin
                 cell = gFindLocal!(xref[1], CF2D, xtest; trybrute = true, eps = eps_gfind)
                 xCellRegionsUniform[cu] = cell == 0 ? 0 : xCellRegionsSimpleCut[cell]
             end
@@ -958,9 +969,6 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
                     end
                 end
             end
-
-            ## revert displacing (for next cut)
-            displace_mesh!(xgrid, Solution[1]; magnify = -1)
         end
     end
 end

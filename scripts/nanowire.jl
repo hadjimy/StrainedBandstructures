@@ -409,7 +409,7 @@ function export_vtk(d = nothing; upscaling = 0, kwargs...)
     end
 end
 
-function postprocess(filename = nothing; watson_datasubdir = watson_datasubdir, Plotter = nothing, export_sol = true, cross_section_cuts = true, cut_levels = "auto", simple_cuts = true, cut_npoints = 200, vol_cut = "auto", eps_gfind = 1e-12, upscaling = 0, kwargs...)
+function postprocess(filename = nothing; watson_datasubdir = watson_datasubdir, Plotter = nothing, export_sol = true, cross_section_cuts = true, cut_levels = "auto", deform = true, simple_cuts = true, cut_npoints = 200, vol_cut = "auto", eps_gfind = 1e-12, upscaling = 0, kwargs...)
 
     if typeof(filename) <: Dict
         d = filename
@@ -459,7 +459,7 @@ function postprocess(filename = nothing; watson_datasubdir = watson_datasubdir, 
         diam = geometry[1] + geometry[2]
         plane_points = [[-0.25*diam,-0.25*diam],[0.25*diam,-0.25*diam],[-0.25*diam,0.25*diam]] # = [X,Y] coordinates of the three points that define the cut plane
         if simple_cuts # needs grid that triangulates cut_levels
-            perform_simple_plane_cuts(datadir(watson_datasubdir, filename_cuts), solution, plane_points, cut_levels; eps0 = d["eps0"], eps_gfind = eps_gfind, cut_npoints = cut_npoints, only_localsearch = true, strain_model = strainm, Plotter = Plotter, upscaling = upscaling)
+            perform_simple_plane_cuts(datadir(watson_datasubdir, filename_cuts), solution, plane_points, cut_levels; eps0 = d["eps0"], eps_gfind = eps_gfind, deform = deform, cut_npoints = cut_npoints, only_localsearch = true, strain_model = strainm, Plotter = Plotter, upscaling = upscaling)
         else
             #perform_plane_cuts(datadir(watson_datasubdir, filename_cuts), solution, plane_points, cut_levels; strain_model = strainm, cut_npoints = cut_npoints, vol_cut = vol_cut, Plotter = Plotter)
         end
