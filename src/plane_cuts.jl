@@ -257,6 +257,7 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
     cut_direction = 3, # 1 = y-z-plane, 2 = x-z-plane, 3 = x-y-plane (default)
     Plotter = nothing,
     upscaling = 0,
+    tight_box = true,
     do_simplecut_plots = Plotter !== nothing,
     do_uniformcut_plots = Plotter !== nothing)
 
@@ -679,11 +680,14 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
             ymax = maximum(view(xCoordinatesCutPlane,b,:))
 
             ## define bounding box and uniform cut grid
-            d = [xmax - xmin,ymax - ymin]
-            xmin -= d[1]*0.01
-            xmax += d[1]*0.01
-            ymin -= d[2]*0.01
-            ymax += d[2]*0.01
+            ## In case tight_box == false then include some marginal cells at the boundary
+            if tight_box == false
+                d = [xmax - xmin,ymax - ymin]
+                xmin -= d[1]*0.01
+                xmax += d[1]*0.01
+                ymin -= d[2]*0.01
+                ymax += d[2]*0.01
+            end
             d = [xmax - xmin,ymax - ymin]
             h_uni = d ./ (cut_npoints-1)
             Xuni = zeros(Float64,0)
