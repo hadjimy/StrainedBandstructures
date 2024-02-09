@@ -557,12 +557,15 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
         ## get 2D coordinates of the simple grid by applying the rotation R
         cut_grid2D = deepcopy(cut_grid)
         xCoordinatesCutPlane = zeros(Float64,2,nnodes_cut)
+        zs = zeros(Float64, nnodes_cut)
         for j = 1 : nnodes_cut
             for k = 1 : 3
                 xCoordinatesCutPlane[1,j] += R[a,k] * (xCoordinatesCut3D[k,j])
                 xCoordinatesCutPlane[2,j] += R[b,k] * (xCoordinatesCut3D[k,j])
+                zs[j] += R[cut_direction,k] * (xCoordinatesCut3D[k,j])
             end
         end
+        z = sum(zs) / nnodes_cut
         cut_grid2D[Coordinates] = xCoordinatesCutPlane
         CF2D = CellFinder(cut_grid2D)
 
@@ -579,9 +582,9 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
         kwargs1[:elastic_strain] = nodevals_ϵu1
         kwargs2 = Dict()
         kwargs2[:elastic_strain] = nodevals_ϵu2
-        ExtendableGrids.writeVTK(target_folder_cut_level * "simple_cut_$(cut_level)_data.vtu", cut_grid; kwargs...)
-        ExtendableGrids.writeVTK(target_folder_cut_level * "simple_cut_$(cut_level)_data_subgrid1.vtu", subgrid1; kwargs1...)
-        ExtendableGrids.writeVTK(target_folder_cut_level * "simple_cut_$(cut_level)_data_subgrid2.vtu", subgrid2; kwargs2...)
+        ExtendableGrids.writeVTK(target_folder_cut_level * "simple_cut_$(cut_level)_data" * (deform ? "_deformed.vtu" : ".vtu"), cut_grid; kwargs...)
+        ExtendableGrids.writeVTK(target_folder_cut_level * "simple_cut_$(cut_level)_data_subgrid1" * (deform ? "_deformed.vtu" : ".vtu"), subgrid1; kwargs1...)
+        ExtendableGrids.writeVTK(target_folder_cut_level * "simple_cut_$(cut_level)_data_subgrid2" * (deform ? "_deformed.vtu" : ".vtu"), subgrid2; kwargs2...)
 
 
         ## data into txt files
@@ -661,23 +664,19 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
         #### UNIFORM CUT GRIDS ###
         if export_uniform_data
 
-            ## start with the same grid coordinates from the simple grid
-            ## (possibly deformed if deform = true)
-            xCoordinatesCutPlane = xCoordinatesCut3D
+            if deform == false
+                ## start with the same grid coordinates from the simple grid
+                ## (possibly deformed if deform = true)
+                xCoordinatesCutPlane = xCoordinatesCut3D
+            else
+                xCoordinatesCutPlane = xCoordinatesCutPlane
+            end
 
             ## restrict coordinates to [x,y] plane
             xmin = minimum(view(xCoordinatesCutPlane,a,:))
             xmax = maximum(view(xCoordinatesCutPlane,a,:))
             ymin = minimum(view(xCoordinatesCutPlane,b,:))
             ymax = maximum(view(xCoordinatesCutPlane,b,:))
-            max_z = maximum(view(xCoordinatesCutPlane,cut_direction,:))
-            min_z = minimum(view(xCoordinatesCutPlane,cut_direction,:))
-
-            ## get z level
-            z = (max_z + min_z)/2
-            z_error = max_z - min_z
-            @info "maximal difference between cut direction coordinates = $(z_error)"
-            #invR = inv(R)
 
             ## define bounding box and uniform cut grid
             d = [xmax - xmin,ymax - ymin]
@@ -685,6 +684,7 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
             xmax += d[1]*0.01
             ymin -= d[2]*0.01
             ymax += d[2]*0.01
+            d = [xmax - xmin,ymax - ymin]
             h_uni = d ./ (cut_npoints-1)
             Xuni = zeros(Float64,0)
             Yuni = zeros(Float64,0)
@@ -696,7 +696,11 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
             xgrid_uni = simplexgrid(Xuni,Yuni)
             xCoordinatesUni = xgrid_uni[Coordinates]
             nnodes_uni = size(xCoordinatesUni,2)
-            xgrid_uni[Coordinates] = [xCoordinatesUni; z*ones(Float64, nnodes_uni)']
+            if deform == false
+                xgrid_uni[Coordinates] = [xCoordinatesUni; z*ones(Float64, nnodes_uni)']
+            else
+                ## how to get the z coordinates for the cut plane (also of the nodes that are outside)?
+            end
 
             ## interpolate data on uniform cut_grid
             @info "Interpolating data on uniform cut mesh..."
@@ -711,40 +715,40 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
             CutSolution_P = FEVector(FES2D_P)
             eps0_fefunc_uni = FEVector(FESpace{H1P1{3}}(xgrid_uni))
 
-            # # mapping from 3D coordinates on cut_grid to 2D coordinates on xgrid_uni
-            # invR::Matrix{Float64} = inv(R)
-            # z_offset = 0.0
-            # function xtrafo!(x3D,x2D)
-            #     for j = 1 : 3
-            #         x3D[j] = invR[j,1] * (x2D[1] + xmin) + invR[j,2] * (x2D[2] + ymin) + invR[j,3] * (z + z_offset) # invR * [x2D[1],x2D[2],z]
-            #         ## now x3D is the coordinate of the point in the displaced mesh
-            #         ## we also need the x3D in the original mesh
-            #     end
-            #     return nothing
-            # end
+            # mapping from 3D coordinates on cut_grid to 2D coordinates on xgrid_uni
+            invR::Matrix{Float64} = inv(R)
+            z_offset = 0.0
+            function xtrafo!(x3D,x2D)
+                for j = 1 : 3
+                    x3D[j] = invR[j,1] * x2D[1] + invR[j,2] * x2D[2] + invR[j,3] * z
+                end
+                return nothing
+            end
 
-            # # mapping from 3D coordinates on simple cut_grid to 2D coordinates on xgrid_uni
-            # function xtrafo2!(x2D_out,x2D_in)
-            #     x2D_out[1] = x2D_in[1] + xmin
-            #     x2D_out[2] = x2D_in[2] + ymin
-            #     return nothing
-            # end
+            # mapping from 3D coordinates on simple cut_grid to 2D coordinates on xgrid_uni
+            function xtrafo2!(x2D_out,x2D_in)
+                x2D_out[1] = x2D_in[1] + xmin
+                x2D_out[2] = x2D_in[2] + ymin
+                return nothing
+            end
 
             #interpolate ϵ0 onto uniform grid
-            lazy_interpolate!(eps0_fefunc_uni[1], eps0_fefunc_orig, [id(1)]; start_cell = start_cell, not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
-
-            # evaluate u on deformed mesh
-            # 2D coordinates on uniform cut mesh need to be transformed to 3D coordinates in displaced 3D grid by xtrafo
-            lazy_interpolate!(CutSolution_u[1], Solution, [id(1)]; start_cell = start_cell, not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
-
-            ## evaluate ∇u on deformed mesh
-            ## since we interpolate on faces of tetrahedrons wehere the gradient jumps
-            ## we evaluate on both sides of the faces and take some averaging
-            ## to ensure that the interpolate! functions evaluates on the correct side
-            ## we add some negative and positive offset to the z coordinate and call the interpolate! two times
-            lazy_interpolate!(CutSolution_∇u[1], DisplacementGradient, [id(1)]; start_cell = start_cell, not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
-            if length(Solution) > 1
-                lazy_interpolate!(CutSolution_P[1], Solution, [id(2)]; start_cell = start_cell, not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
+            if deform
+                displace_mesh!(xgrid, Solution[1]; magnify = 1)
+                lazy_interpolate!(eps0_fefunc_uni[1], eps0_fefunc_orig, [id(1)]; xtrafo = xtrafo!, start_cell = start_cell, not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
+                lazy_interpolate!(CutSolution_u[1], Solution, [id(1)]; xtrafo = xtrafo!, start_cell = start_cell, not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
+                lazy_interpolate!(CutSolution_∇u[1], DisplacementGradient, [id(1)]; xtrafo = xtrafo!, start_cell = start_cell, not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
+                if length(Solution) > 1
+                    lazy_interpolate!(CutSolution_P[1], Solution, [id(2)]; xtrafo = xtrafo!, start_cell = start_cell, not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
+                end
+                displace_mesh!(xgrid, Solution[1]; magnify = -1)
+            else
+                lazy_interpolate!(eps0_fefunc_uni[1], eps0_fefunc_orig, [id(1)]; not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
+                lazy_interpolate!(CutSolution_u[1], Solution, [id(1)]; not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
+                lazy_interpolate!(CutSolution_∇u[1], DisplacementGradient, [id(1)]; not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
+                if length(Solution) > 1
+                    lazy_interpolate!(CutSolution_P[1], Solution, [id(2)]; not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
+                end
             end
 
             ## postprocess gradient to gradients on undisplaced mesh
@@ -802,12 +806,29 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
             xCellRegionsUniform = zeros(Int32,num_cells(xgrid_uni))
             xCellRegionsSimpleCut = cut_grid[CellRegions]
 
+            ## get 2D coordinates of the uniform grid by applying the inverse of rotation R
+            if deform == false
+                xCoordinatesCut3D = xgrid_uni[Coordinates]
+                xCoordinatesCut2D = zeros(Float64,2,nnodes_uni)
+                invR = inv(R[[a,b,c],:])
+                for j = 1 : nnodes_uni
+                    z = 0
+                    for k = 1 : 3
+                        xCoordinatesCut2D[1,j] += invR[1,k] * (xCoordinatesCut3D[k,j])
+                        xCoordinatesCut2D[2,j] += invR[2,k] * (xCoordinatesCut3D[k,j])
+                        z += invR[3,k] * (xCoordinatesCut3D[k,j])
+                    end
+                end
+            else
+                xCoordinatesCut2D = xCoordinatesUni
+            end
+
             xtest = zeros(Float64,2)
             for cu = 1 : num_cells(xgrid_uni)
                 ## compute center
                 fill!(xtest,0)
                 for j = 1 : 2, n = 1 : 3
-                    xtest[j] += xCoordinatesUni[j, xCellNodesUni[n,cu]]
+                    xtest[j] += xCoordinatesCut2D[j, xCellNodesUni[n,cu]]
                 end
                 xtest ./= 3.0
                 #xtest[1] += xmin
@@ -819,7 +840,7 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
 
             for n = 1 : nnodes_uni
                 for j = 1 : 2
-                    xtest[j] = xCoordinatesUni[j,n]
+                    xtest[j] = xCoordinatesCut2D[j,n]
                 end
                 xtest[1] += xmin
                 xtest[2] += ymin
@@ -852,7 +873,7 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
             if length(Solution) > 1
                 kwargs[:polarisation] = view(nodevalues(CutSolution_P[1], Identity),:,:)
             end
-            ExtendableGrids.writeVTK(target_folder_cut_level * "uniform_cut_$(cut_level)_data.vtu", xgrid_uni; kwargs...)
+            ExtendableGrids.writeVTK(target_folder_cut_level * "uniform_cut_$(cut_level)_data" * (deform ? "_deformed.vtu" : ".vtu"), xgrid_uni; kwargs...)
            
 
             ## replacing NaN with 1e30 so that min/max calculation works
@@ -884,6 +905,11 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
 
             ## plot displacement, strain and polarisation on uniform cut grid
             if do_uniformcut_plots
+
+                xgrid_uni2D = deepcopy(xgrid_uni)
+                xgrid_uni2D[Coordinates] = xCoordinatesCut2D
+                #gridplot(xgrid_uni2D; Plotter = Plotter)
+
                 @info "Plotting data on uniform cut grid..."
                 uxmin::Float64 = 1e30
                 uxmax::Float64 = -1e30
@@ -920,21 +946,22 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
                         end
                     end
                 end
-                plt = scalarplot(xgrid_uni, view(CutSolution_u.entries,1:nnodes_uni), Plotter = Plotter; flimits = (uxmin,uxmax), title = "ux on cut", fignumber = 1)
+                @show uxmin, uxmax
+                plt = scalarplot(xgrid_uni2D, view(CutSolution_u.entries,1:nnodes_uni), Plotter = Plotter; flimits = (uxmin,uxmax), title = "ux on cut", fignumber = 1)
                 filename = target_folder_cut_level * "uniform_cut_$(cut_level)_ux.png"
                 if isdefined(Plotter,:savefig)
                     Plotter.savefig(filename)
                 else
                     GridVisualize.save(filename, plt; Plotter = Plotter)
                 end
-                plt = scalarplot(xgrid_uni, view(CutSolution_u.entries,nnodes_uni+1:2*nnodes_uni), Plotter = Plotter; flimits = (uymin,uymax), title = "uy on cut", fignumber = 1)
+                plt = scalarplot(xgrid_uni2D, view(CutSolution_u.entries,nnodes_uni+1:2*nnodes_uni), Plotter = Plotter; flimits = (uymin,uymax), title = "uy on cut", fignumber = 1)
                 filename = target_folder_cut_level * "uniform_cut_$(cut_level)_uy.png"
                 if isdefined(Plotter,:savefig)
                     Plotter.savefig(filename)
                 else
                     GridVisualize.save(filename, plt; Plotter = Plotter)
                 end
-                plt = scalarplot(xgrid_uni, view(CutSolution_u.entries,2*nnodes_uni+1:3*nnodes_uni), Plotter = Plotter; flimits = (uzmin,uzmax), title = "uz on cut", fignumber = 1)
+                plt = scalarplot(xgrid_uni2D, view(CutSolution_u.entries,2*nnodes_uni+1:3*nnodes_uni), Plotter = Plotter; flimits = (uzmin,uzmax), title = "uz on cut", fignumber = 1)
                 filename = target_folder_cut_level * "uniform_cut_$(cut_level)_uz.png"
                 if isdefined(Plotter,:savefig)
                     Plotter.savefig(filename)
@@ -942,7 +969,7 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
                     GridVisualize.save(filename, plt; Plotter = Plotter)
                 end
                 if length(Solution) > 1
-                    plt = scalarplot(xgrid_uni, CutSolution_P.entries, Plotter = Plotter; flimits = (Pmin,Pmax), title = "Polarisation on cut", fignumber = 1)
+                    plt = scalarplot(xgrid_uni2D, CutSolution_P.entries, Plotter = Plotter; flimits = (Pmin,Pmax), title = "Polarisation on cut", fignumber = 1)
                     filename = target_folder_cut_level * "uniform_cut_$(cut_level)_P.png"
                     if isdefined(Plotter,:savefig)
                         Plotter.savefig(filename)
@@ -951,7 +978,7 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
                     end
                 end
                 for k = 1 : 6
-                    plt = scalarplot(xgrid_uni, view(CutSolution_ϵu.entries,(k-1)*nnodes_uni+1:k*nnodes_uni), Plotter = Plotter; flimits = (ϵmin[k],ϵmax[k]), title = "ϵ_$(component_names[k]) on cut", fignumber = 1)
+                    plt = scalarplot(xgrid_uni2D, view(CutSolution_ϵu.entries,(k-1)*nnodes_uni+1:k*nnodes_uni), Plotter = Plotter; flimits = (ϵmin[k],ϵmax[k]), title = "ϵ_$(component_names[k]) on cut", fignumber = 1)
                     filename = target_folder_cut_level * "uniform_cut_$(cut_level)_ϵ$(component_names[k]).png"
                     if isdefined(Plotter,:savefig)
                         Plotter.savefig(filename)
@@ -960,7 +987,7 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
                     end
                 end
                 for k = 1 : 6
-                    plt = scalarplot(xgrid_uni, view(CutSolution_ϵu_elastic.entries,(k-1)*nnodes_uni+1:k*nnodes_uni), Plotter = Plotter; flimits = (ϵmin_elastic[k],ϵmax_elastic[k]), title = "ϵ_$(component_names[k]) on cut", fignumber = 1)
+                    plt = scalarplot(xgrid_uni2D, view(CutSolution_ϵu_elastic.entries,(k-1)*nnodes_uni+1:k*nnodes_uni), Plotter = Plotter; flimits = (ϵmin_elastic[k],ϵmax_elastic[k]), title = "ϵ_$(component_names[k]) on cut", fignumber = 1)
                     filename = target_folder_cut_level * "uniform_cut_$(cut_level)_ϵ_elastic$(component_names[k]).png"
                     if isdefined(Plotter,:savefig)
                         Plotter.savefig(filename)
