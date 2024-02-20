@@ -1,4 +1,4 @@
-# StrainedBandstructures
+# StrainedBandstructures.jl
 
 ## Working examples
 
