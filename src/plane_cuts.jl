@@ -846,8 +846,8 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
                 for j = 1 : 2
                     xtest[j] = xCoordinatesCut2D[j,n]
                 end
-                xtest[1] += xmin
-                xtest[2] += ymin
+                #xtest[1] += xmin
+                #xtest[2] += ymin
                 cell = gFindLocal!(xref[1], CF2D, xtest; trybrute = true, eps = eps_gfind)
                 region = cell == 0 ? 0 : xCellRegionsSimpleCut[cell]
                 if region == 1

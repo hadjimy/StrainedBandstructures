@@ -360,7 +360,7 @@ function solve_lowlevel(
             end
 
             time_solver = @elapsed begin
-                update!(factorization)
+                ExtendableSparse.update!(factorization)
                 ldiv!(view(Solution[1]), factorization, rhs.entries)
             end
             iteration += 1
@@ -394,7 +394,7 @@ function solve_lowlevel(
         factorize!(factorization, SE)
 
         time_solver = @elapsed begin
-            update!(factorization)
+            ExtendableSparse.update!(factorization)
             ldiv!(view(Solution[2]), factorization, rhs.entries)
         end
         iteration += 1
