@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.19.32
+# v0.19.42
 
 using Markdown
 using InteractiveUtils
@@ -564,13 +564,87 @@ function assign_regions(p,builder,shape,refinement_width,nrefs,d1,d2,δ)
 end
 
 # ╔═╡ 285b27a9-d813-4ab1-ad66-0b0f2fe5091f
-md" Additional grid function:"
+md" Additional grid functions for adaptive refinement:"
+
+# ╔═╡ 33e1bbd5-38dd-4174-959d-e20879574a3b
+function distance_point2line(x1,y1,x2,y2,x0,y0)
+
+	# compute line ay + bx + c = 0 passing through (x1,y1) and (x2,y2)
+	a = -(y2-y1)/(x2-x1)
+	b = 1
+	c = (y2-y1)/(x2-x1)*x1 - y1
+	
+	return abs(a*x0+b*y0+c)/sqrt(a^2+b^2)
+end	
+
+# ╔═╡ 8e68aa5c-ddbb-4cb2-8777-5939f820d2e7
+function compute_minimal_distance_to_interface(lines,p)
+	prev_distance = Inf
+	distance = Inf
+	for line in lines
+		(x1,y1) = line[1]
+		(x2,y2) = line[2]
+
+		# coefficients of lines perpendicular to material interface passing through the corner points
+		a = (x2-x1)/(y2-y1)
+		b = 1
+		c_left_line = -a*x1 - y1
+		c_right_line = -a*x2 - y2
+
+		# evaluate point p at perpendicular lines
+		left_line_value = (y2-y1) == 0 ? p[1]-x1 : a*p[1]+b*p[2]+c_left_line
+		right_line_value = (y2-y1) == 0 ? p[1]-x2 : a*p[1]+b*p[2]+c_right_line
+
+		# compute distance only if point p lies in the band between the perpendicular lines
+		if left_line_value*right_line_value <= 0
+			distance = min(prev_distance,distance_point2line(x1,y1,x2,y2,p[1],p[2]))
+		else
+			distance = min(prev_distance,Inf)
+		end
+		prev_distance = distance
+	end
+	return distance
+end
+
+# ╔═╡ f5649cfe-efbe-4983-a835-bba376ad24a5
+function is_above(p,lines)
+	for line in lines
+		(x1,y1) = line[1]
+		(x2,y2) = line[2]
+		a = -(y2-y1)/(x2-x1)
+		b = 1
+		c = (y2-y1)/(x2-x1)*x1 - y1
+		if a*p[1]+b*p[2]+c < 0
+			return false
+		end
+	end
+	return true
+end
+
+# ╔═╡ 0580ba22-7da3-498e-929b-963ff8a18a7f
+function is_below(p,lines)
+		(x1,y1) = lines[1][1]
+		(x2,y2) = lines[1][2]
+		(x3,y3) = lines[2][2]
+	
+		a1 = -(y2-y1)/(x2-x1)
+		b1 = 1
+		c1 = (y2-y1)/(x2-x1)*x1 - y1
+		a2 = -(y3-y2)/(x3-x2)
+		b2 = 1
+		c2 = (y3-y2)/(x3-x2)*x2 - y2
+		
+		if a1*p[1]+b1*p[2]+c1 < 0 && a2*p[1]+b2*p[2]+c2 < 0
+			return true
+		end
+	return false
+end
 
 # ╔═╡ 5bb8e9ca-8669-46a1-97d4-72a912465e9e
 function nanowire_tensorgrid_mirror!(; scale = [1,1,1,1], shape = 1,
 	nrefs = 1, z_nrefs = 2, z_levels_dist = 100, cut_levels = scale[4]/2,
 	refinement_width = nothing, corner_refinement = false, manual_refinement = false,
-	rotate = true, max_nodes = 20)
+	rotate = true, max_nodes = 20, adaptive_refinement = true)
     
     @info "Generating nanowire grid for scale = $scale"
 
@@ -584,6 +658,30 @@ function nanowire_tensorgrid_mirror!(; scale = [1,1,1,1], shape = 1,
     ## assign nodes
 	p = asign_nodes(p,builder,shape,d1,d2,δ)
 
+	# adaptive refinement
+	if adaptive_refinement == true
+		# points to define the lines of the material interface
+		lines = [[(-d2,0),(-d2/2,-sqrt(3)/2*d2)],
+				[(-d2/2,-sqrt(3)/2*d2),(0,-sqrt(3)/2*d2)]]
+		
+		function unsuitable(x1,y1,x2,y2,x3,y3,area)
+			# center of triangle
+			bary = [(x1+x2+x3)/3,(y1+y2+y3)/3]
+			# compute minimal distance between center of triangle and interface lines
+			dist = compute_minimal_distance_to_interface(lines,bary)
+			# if area > 1.0*dist^1.2 && is_above(bary,lines)
+			# 	return true
+			#  elseif area > 0.5*dist && !is_above(bary,lines)
+			#  	return true
+			if area > 1.0*dist^1.2 
+				return true
+			else
+				return false
+			end
+		end
+		options!(builder,unsuitable=unsuitable)
+	end
+	
 	## assign extra nodes for refinement accross the material interface 
 	if refinement_width !== nothing
 		p = interface_refinement(p,builder,shape,d1,d2,δ,refinement_width)
@@ -602,16 +700,17 @@ function nanowire_tensorgrid_mirror!(; scale = [1,1,1,1], shape = 1,
 	
 	# optional refinement at interface corners 
 	if corner_refinement == true
-        function unsuitable(x1,y1,x2,y2,x3,y3, area)
+		@info "HELLO"
+        function unsuitable2(x1,y1,x2,y2,x3,y3, area)
             bary = [(x1+x2+x3)/3,(y2+y2+y3)/3]
 			dist = min(norm(bary-refinement_center1),norm(bary-refinement_center2))
 			if shape == 3
 				dist = min(dist,norm(bary-refinement_center3))
 			end
-            if area > 1.5*dist
-                return 1
+            if area > 0.5*dist
+                return true
             else
-                return 0
+                return false
             end
         end
 
@@ -623,7 +722,7 @@ function nanowire_tensorgrid_mirror!(; scale = [1,1,1,1], shape = 1,
     	    refinement_center2 = [-d2/2,-sqrt(3)/2*d2]
 			refinement_center3 = [-d2/2,sqrt(3)/2*d2]
 		end
-		options!(builder, unsuitable=unsuitable)
+		options!(builder, unsuitable=unsuitable2)
 	end
 
 	# build grid
@@ -708,12 +807,39 @@ let
 	refinement_width = (dstressor >= 10 ? 4 : dbulk/25+1)/sqrt(3)
 	corner_refinement = false
 	manual_refinement = true
+	adaptive_refinement = false
 	rotate = 0
 
     grid, cross_section = nanowire_tensorgrid_mirror!(; scale=scale, shape=shape,
         cut_levels=nothing, nrefs=nrefs, refinement_width=refinement_width,
         corner_refinement=corner_refinement, manual_refinement=manual_refinement,
-		rotate=rotate)
+		rotate=rotate, adaptive_refinement=adaptive_refinement)
+
+	vis = GridVisualizer(Plotter=PlutoVista,layout=(1,1),resolution=(700,700))
+	gridplot!(vis[1,1],cross_section)
+	@info "at cross section: $(num_nodes(cross_section)) (nodes), $(num_cells(cross_section)) (cells)"
+	@info "total number: $(num_nodes(grid)) (nodes), $(num_cells(grid)) (cells)"
+	reveal(vis)
+end
+
+# ╔═╡ 9056d027-d02c-4e96-b818-cf00e30ba848
+let
+	shape = 2
+
+	scale = [geometry[1]/sqrt(3),geometry[2]/sqrt(3),geometry[3],geometry[4]]
+	nrefs = 3
+	dbulk = geometry[1] + geometry[2]
+	dstressor = geometry[3]
+	refinement_width = 0#(dstressor >= 10 ? 4 : dbulk/25+1)/sqrt(3)
+	corner_refinement = false
+	manual_refinement = false
+	adaptive_refinement = true
+	rotate = 0
+
+    grid, cross_section = nanowire_tensorgrid_mirror!(; scale=scale, shape=shape,
+        cut_levels=nothing, nrefs=nrefs, refinement_width=refinement_width,
+        corner_refinement=corner_refinement, manual_refinement=manual_refinement,
+		rotate=rotate, adaptive_refinement=adaptive_refinement)
 
 	vis = GridVisualizer(Plotter=PlutoVista,layout=(1,1),resolution=(700,700))
 	gridplot!(vis[1,1],cross_section)
@@ -721,7 +847,7 @@ let
 	@info "total number: $(num_nodes(grid)) (nodes), $(num_cells(grid)) (cells)"
 	reveal(vis)
 
-	PyPlot.savefig("cross_section.pdf")
+	#PyPlot.savefig("cross_section_NEW.pdf")
 end
 
 # ╔═╡ f478eda3-6192-4f69-ba39-08bebeaa7847
@@ -733,12 +859,13 @@ let
 	refinement_width = 1/4*geometry[2]
 	corner_refinement = false
 	manual_refinement = true
+	adaptive_refinement = false
 	rotate = 0
 	
     grid, cross_section = nanowire_tensorgrid_mirror!(; scale=scale, shape=shape,
         cut_levels=nothing, nrefs=nrefs, refinement_width=refinement_width,
         corner_refinement=corner_refinement, manual_refinement=manual_refinement,
-		rotate=rotate)
+		rotate=rotate,adaptive_refinement=adaptive_refinement)
 
 	vis = GridVisualizer(Plotter=PlutoVista,layout=(1,1),resolution=(700,700))
 	gridplot!(vis[1,1],cross_section)
@@ -756,7 +883,8 @@ let
 
 	grid, cross_section = nanowire_tensorgrid_mirror!(; scale = scale,
         cut_levels = nothing, nrefs = 2, refinement_width = refinement_width,
-		shape = 2, corner_refinement = false, manual_refinement = true, rotate = 0)
+		shape = 2, corner_refinement = false, manual_refinement = true, rotate = 0,
+		adaptive_refinement = false)
 	vis = GridVisualizer(Plotter=PyPlot)
 	gridplot!(vis,cross_section)
 	PyPlot.savefig("cross_section.pdf")
@@ -765,9 +893,9 @@ end
 
 # ╔═╡ 6e1c4ae9-15cc-436d-84b3-d9104bfd1b79
 let
-	shape = 1
+	shape = 2
 	nrefs = 2
-	rotate = 90
+	rotate = 0
 
 	scale = [geometry[1]/sqrt(3),geometry[2]/sqrt(3),geometry[3],geometry[4]]
 	if shape == 3
@@ -793,6 +921,15 @@ let
 	elseif shape == 2 || shape == 3
 		#ptx = -sqrt(3)/2*d2-(δ+α)/2
 		#pty = d1/2
+		# ptx = 0
+		# pty = -sqrt(3)/2*d2
+
+		ptx = -d2
+		pty = 0
+
+		ptx = -d2/2
+		pty = -sqrt(3)/2*d2
+
 		ptx = 0
 		pty = -sqrt(3)/2*d2
 	end
@@ -805,7 +942,8 @@ let
 
 	grid, cross_section = nanowire_tensorgrid_mirror!(; scale = scale,
 		cut_levels = nothing, nrefs = nrefs, refinement_width = α, shape = shape,
-        corner_refinement = false, manual_refinement = true, rotate = rotate)
+        corner_refinement = false, manual_refinement = true, rotate = rotate,
+		adaptive_refinement = false)
 
     gridvis = GridVisualizer(Plotter=PyPlot,dim=2)
 	gridplot!(gridvis,cross_section)
@@ -973,6 +1111,7 @@ end
 # ╠═6cb742d3-519f-419f-8bc9-46b1c687a026
 # ╠═5020c786-0560-4d00-a2ab-bca6b2c40fe7
 # ╠═a0387376-89a9-4af1-945a-251ee6d668cd
+# ╠═9056d027-d02c-4e96-b818-cf00e30ba848
 # ╠═f478eda3-6192-4f69-ba39-08bebeaa7847
 # ╟─e3dd272a-59e9-4c3b-9e5c-ff0a061929e2
 # ╟─4a50a0fa-0a2f-43ca-981f-b2239ec73885
@@ -991,7 +1130,11 @@ end
 # ╟─db067db2-2b9a-4bd4-ac8a-abd58fb24094
 # ╟─50565fe6-d590-42bd-90d9-5297c76df062
 # ╟─285b27a9-d813-4ab1-ad66-0b0f2fe5091f
-# ╟─5bb8e9ca-8669-46a1-97d4-72a912465e9e
+# ╠═33e1bbd5-38dd-4174-959d-e20879574a3b
+# ╠═8e68aa5c-ddbb-4cb2-8777-5939f820d2e7
+# ╟─f5649cfe-efbe-4983-a835-bba376ad24a5
+# ╟─0580ba22-7da3-498e-929b-963ff8a18a7f
+# ╠═5bb8e9ca-8669-46a1-97d4-72a912465e9e
 # ╟─4a50c199-2d06-420a-b797-3faa40ab14b8
 # ╠═1e6e16d0-a4e4-43e0-a67b-88656c1f5247
 # ╠═8f3027d3-fb5f-4f24-ab6b-4dc4526a4f99
