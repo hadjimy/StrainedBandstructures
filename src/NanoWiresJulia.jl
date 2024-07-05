@@ -9,6 +9,7 @@ using SimplexGridFactory
 using Triangulate
 using TetGen
 using LinearAlgebra
+using LinearSolve
 using Printf
 using DiffResults
 using ForwardDiff
@@ -86,6 +87,10 @@ export solve_by_embedding
 export solve_by_embedding!
 export solve_by_damping
 export solve_lowlevel
+
+include("solvers_from_energy.jl")
+export EnergyOperator, update_M!
+export ∂FW!
 
 greet() = print("Hello World!")
 

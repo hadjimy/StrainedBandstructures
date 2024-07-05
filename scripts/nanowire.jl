@@ -2,15 +2,18 @@ module nanowire
 
 using NanoWiresJulia
 using ExtendableFEM
+using ExtendableFEMBase
 using ExtendableGrids
 using ExtendableSparse
 using GridVisualize
 using Printf
 using SimplexGridFactory
 using Triangulate
+using LinearAlgebra
 using TetGen
 using DrWatson
 using DataFrames
+using LinearSolve
 using Pardiso
 
 ## start with run_watson() --> result goto data directory
@@ -34,7 +37,7 @@ function get_defaults()
         "full_nonlin" => true,                          # use complicated model (ignored if linear strain is used)
         "use_emb" => true,                              # use embedding (true) or damping (false) solver ?
         "nsteps" => 5,                                  # number of embedding steps in embedding solver
-        "maxits" => 10,                                 # max number of iteration in each embedding step
+        "maxits" => 20,                                 # max number of iteration in each embedding step
         "tres" => 1e-12,                                # target residual in each embedding step
         "geometry" => [30, 20, 15, 2000],               # dimensions of nanowire
         "scenario" => 1,                                # scenario number that fixes materials for core/shell/stressor
@@ -42,13 +45,15 @@ function get_defaults()
         "mstruct" => ZincBlende001,                     # material structure type
         "femorder" => 1,                                # order of the finite element discretisation (displacement)
         "use_lowlevel_solver" => true,                  # use new implementation based on low level structures (should be faster)
+        "bonus_quadorder" => 2,                         # bonus quadrature order for nonlinear operator assembly
         "femorder_P" => 1,                              # order of the finite element discretisation (polarisation)
         "nrefs" => 0,                                   # number of uniform refinements before solve
-        "avgc" => 2,                                    # lattice number calculation method (average case)
+        "avgc" => 1,                                    # lattice number calculation method (average case)
         "polarisation" => false,                         # also solve for polarisation
         "fully_coupled" => false,                       # parameter for later when we have the full model
         "postprocess" => false,                         # angle calculation, vtk files, cuts
-        "linsolver" => ExtendableSparse.MKLPardisoLU,   # linear solver (try ExtendableSparse.MKLPardisoLU or ExtendableSparse.LUFactorization)
+        "linsolver" => LinearSolve.PardisoJL(),         # linear solver (everything supported by LinearSolve)
+        "damping" => 0,                                 # damping in Newton iteration
         "uniform_grid" => true,                         # uniform grid in z direction or nonuniform grid with local refinement at cut levels
         "interface_refinement" => false,                # enables a finer grid at material interface for each cross-section
         "z_levels_dist" => 100,                         # distance between z-levels is z_levels_dist * 2^(-nrefs)
@@ -129,9 +134,10 @@ function main(d = nothing; verbosity = 0, Plotter = nothing, force::Bool = false
     @assert fully_coupled == false "fully coupled model not yet implemented"
     ## setup parameter Array (which is also returned and can be used later to embedd)
     parameters::Array{Float64,1} = [full_nonlin ? 1 : 0]
-    quadorder_D = (femorder > 1) ? 2 : 0 # dramatically increases runtime! (3*(femorder-1) would be exact)
     ## compute lattice misfit strain
     eps0, a = get_lattice_misfit_nanowire(avgc, MD, geometry, full_nonlin)
+    @show eps0
+    @show a
 
     println("        strain type = $(strainm)")
     println("   elasticity model = $(full_nonlin ? "full" : "simplified")")
@@ -195,54 +201,10 @@ function main(d = nothing; verbosity = 0, Plotter = nothing, force::Bool = false
     @show xgrid
 
 
-    ###########################
-    ### PROBLEM DESCRIPTION ###
-    ###########################
-
-    ## create PDEDescription and add displacement unknown
-    Problem = ProblemDescription("nanowire bending")
-    u = Unknown("u"; name = "displacement")
-    assign_unknown!(Problem, u)
-
-    ## add Dirichlet boundary data on front
-    regions_bc = [4,5,6]  # 4 = core bottom, 5 = shell bottom, 6 = stressor bottom
-    BoundaryOperator = HomogeneousBoundaryData(u; regions = regions_bc)
-    assign_operator!(Problem, BoundaryOperator)
-
-    ## add (nonlinear) operators for displacement equation
-    DisplacementOperator = get_displacement_operator_new(MD.TensorC, strainm, estrainm, eps0, a; dim = 3, displacement = u, emb = parameters, regions = 1:nregions, bonus_quadorder = quadorder_D)
-    assign_operator!(Problem, DisplacementOperator)
-
-    ## add (linear) operators for polarisation equation
-    if polarisation
-        V = Unknown("V"; name = "polarisatio potential")
-        assign_unknown!(Problem, V)
-        k0 = 8.854e-3 # 8.854e-12 C/(V m) = 1e9*8.854e-12 C/(V nm)
-        kr::Array{Float64,1} = [MD.data[1].kappar, MD.data[2].kappar, MD.data[end].kappar]
-        #PolarisationOperator = PDEPolarisationOperator(MD.TensorE, strainm, eps0, k0 * kr, 3)
-        #assign_operator!(Problem, PolarisationOperator)
-    else
-        PolarisationOperator = nothing
-    end
-    # if polarisation
-    #     
-    #     
-    #     subiterations = fully_coupled ? [[1,2]] : [[1], [2]]
-
-    #     ## add nonlinear operators for displacement
-    #     for r = 1 : nregions
-    #         if fully_coupled
-    #             # todo
-    #         else
-    #             assign_operator!(Problem, get_polarisation_from_strain_operator(MD.TensorE[r], strainm, eps0[r][1]; dim = 3, regions = [r]))
-    #             assign_operator!(Problem, get_polarisation_laplacian_operator(; κ = k0 * kr[r], dim = 3, regions = [r]))
-    #         end
-    #     end
-    # end
-
     ##############
     ### SOLVER ###
     ##############
+    regions_bc = [4,5,6]  # 4 = core bottom, 5 = shell bottom, 6 = stressor bottom
 
     ## choose finite element type for displacement (vector-valued) and polarisation (scalar-valued)
     if femorder == 1
@@ -257,11 +219,16 @@ function main(d = nothing; verbosity = 0, Plotter = nothing, force::Bool = false
     end
 
     ## call solver
-    @unpack nsteps, tres, maxits, linsolver, use_lowlevel_solver = d
+    @unpack nsteps, tres, maxits, linsolver, bonus_quadorder, damping, use_lowlevel_solver = d
+
+    ## define unknnowns
+    u = Unknown("u"; name = "discplacement")
 
     if (use_lowlevel_solver)
+        BoundaryOperator = HomogeneousBoundaryData(1; regions = regions_bc)
+        DisplacementOperator = get_displacement_operator_new(MD.TensorC, strainm, estrainm, eps0, a; dim = 3, displacement = u, emb = parameters, regions = 1:nregions, bonus_quadorder = bonus_quadorder)
         PolarisationOperator = nothing
-        Solution, residual = solve_lowlevel(xgrid,
+        Solution, last_residual = solve_lowlevel(xgrid,
                                 BoundaryOperator,
                                 DisplacementOperator.kernel,
                                 PolarisationOperator,
@@ -274,23 +241,25 @@ function main(d = nothing; verbosity = 0, Plotter = nothing, force::Bool = false
                                 coupled = false,
                                 maxiterations = [maxits, 1])
     else
+        ## problem description
+        PD = ProblemDescription("My problem")
+        assign_unknown!(PD, u)
+        quadorder = (femorder-1)*2 + bonus_quadorder
+        M = [Matrix(diagm(1.0 .+ ai)) for ai in eps0]
+        EO = EnergyOperator(M, MD.TensorC)
+        opid = assign_operator!(PD, NonlinearOperator(EO.eval_∂FW!, [grad(u)]; sparse_jacobians = false, quadorder = quadorder, damping = damping))
+        assign_operator!(PD, HomogeneousBoundaryData(u; regions = [4,5,6]))
+
         FES = [FESpace{FEType_D}(xgrid), FESpace{FEType_P}(xgrid)]
         SC = nothing
-        solution = FEVector(FES; tags = Problem.unknowns)
-        parameters_target = deepcopy(parameters)
-        residual = 0.0
+        Solution = FEVector(FES; tags = PD.unknowns)
+        last_residual = 0.0
         for j = 1 : nsteps
-            parameters .= nsteps == 1 ? parameters_target : (j-1)/(nsteps-1) .* parameters_target
-            println("Solving problem with parameter parameters = $parameters (embedding step $j/$(nsteps))...")
-        
-            solution, SC = ExtendableFEM.solve(Problem, FES[1], SC;
-                init = solution,
-                method_linear = linsolver,
-                return_config = true,
-                maxiterations = maxits,
-                target_residual = tres
-            )
-            residual = SC.statistics.nonlinear_residuals[end]
+            M = [Matrix(diagm(1 .+ ai*j/nsteps)) for ai in eps0]
+            update_M!(EO, M)
+            replace_operator!(PD, opid, NonlinearOperator(EO.eval_∂FW!, [grad(u)]; sparse_jacobians = false, quadorder = quadorder))
+            Solution, SC = ExtendableFEM.solve(PD, FES, SC; init = Solution, maxiterations = maxits, return_config = true, method_linear = linsolver, target_residual = tres, damping = damping)
+            last_residual = residual(SC)
         end
     end
 
@@ -299,7 +268,7 @@ function main(d = nothing; verbosity = 0, Plotter = nothing, force::Bool = false
     resultd["eps0"] = eps0
     resultd["a"] = a
     resultd["solution"] = Solution
-    resultd["residual"] = residual
+    resultd["residual"] = last_residual
     wsave(datadir(watson_datasubdir, filename), resultd)
 
     ###################
