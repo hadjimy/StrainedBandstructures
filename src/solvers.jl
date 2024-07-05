@@ -46,6 +46,10 @@ function solve_lowlevel(
             ndofs = $(length(Solution.entries))
             polarisation = $solve_polarisation (coupled = $coupled)"
 
+    ## prepare linear solver
+	LP = LinearProblem(S.entries.cscmatrix, rhs.entries)
+    linsolve = nothing
+
     ## generate quadrature rule
     EG = xgrid[UniqueCellGeometries][1]
     order = get_polynomialorder(FETypes[1], EG)
@@ -333,8 +337,7 @@ function solve_lowlevel(
             # update system
             time_assembly = @elapsed update_displacement(; coupled = coupled)
             if iteration == 0 && step == 1
-                factorization=linsolver(SE)
-                factorize!(factorization, SE)
+                linsolve = init(LP, linsolver)
             end
         
             # compute nonlinear residual
@@ -360,8 +363,10 @@ function solve_lowlevel(
             end
 
             time_solver = @elapsed begin
-                ExtendableSparse.update!(factorization)
-                ldiv!(view(Solution[1]), factorization, rhs.entries)
+				linsolve.A = S.entries.cscmatrix
+				linsolve.b = rhs.entries
+				x = LinearSolve.solve!(linsolve)
+                Solution.entries .= x.u
             end
             iteration += 1
 
