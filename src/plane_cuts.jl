@@ -248,7 +248,7 @@ end
 function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_points, cut_levels; 
     strain_model = NonlinearStrain3D, 
     export_uniform_data = true,
-    cut_npoints = 200, 
+    cut_npoints = [200,200],
     only_localsearch = true,
     eps_gfind = 1e-11,
     deform = false,
@@ -681,22 +681,24 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
 
             ## define bounding box and uniform cut grid
             ## In case tight_box == false then include some marginal cells at the boundary
+            d = [xmax - xmin,ymax - ymin]
             if tight_box == false
-                d = [xmax - xmin,ymax - ymin]
                 xmin -= d[1]*0.01
                 xmax += d[1]*0.01
                 ymin -= d[2]*0.01
                 ymax += d[2]*0.01
             end
-            d = [xmax - xmin,ymax - ymin]
-            h_uni = d ./ (cut_npoints-1)
+            hx_uni = d ./ (cut_npoints[1]-1)
+            hy_uni = d ./ (cut_npoints[2]-1)
             Xuni = zeros(Float64,0)
             Yuni = zeros(Float64,0)
-            for j = 0 : cut_npoints - 1
-                push!(Xuni, xmin + h_uni[1]*j)
-                push!(Yuni, ymin + h_uni[2]*j)
+            for j = 0 : cut_npoints[1] - 1
+                push!(Xuni, xmin + hx_uni[1]*j)
             end
-            @info "Creating uniform grid with h_uni = $h_uni for bounding box ($xmin,$xmax) x ($ymin,$ymax)"
+            for j = 0 : cut_npoints[2] - 1
+                push!(Yuni, ymin + hy_uni[2]*j)
+            end
+            @info "Creating uniform grid with $hx_uni x $hy_uni points for bounding box ($xmin,$xmax) x ($ymin,$ymax)"
             xgrid_uni = simplexgrid(Xuni,Yuni)
             xCoordinatesUni = xgrid_uni[Coordinates]
             nnodes_uni = size(xCoordinatesUni,2)
@@ -803,7 +805,8 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
             xCellNodesUni = xgrid_uni[CellNodes]
             nnodes_uni = size(xCoordinatesUni,2)
             xdim = size(xCoordinatesUni,1)
-            #@printf(io, "CORE STRESSOR OUTSIDE X Y\n")
+            @printf(io, "%d %d\n", cut_npoints[1], cut_npoints[2])
+            @printf(io, "CORE STRESSOR OUTSIDE\n")
             cell::Int = 0
             region::Int = 0
             x3D = zeros(Float64,3)

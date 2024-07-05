@@ -377,7 +377,7 @@ function export_vtk(d = nothing; upscaling = 0, kwargs...)
     end
 end
 
-function postprocess(filename = nothing; watson_datasubdir = watson_datasubdir, Plotter = nothing, export_sol = true, cross_section_cuts = true, cut_levels = "auto", deform = true, simple_cuts = true, cut_npoints = 200, vol_cut = "auto", eps_gfind = 1e-12, upscaling = 0, kwargs...)
+function postprocess(filename = nothing; watson_datasubdir = watson_datasubdir, Plotter = nothing, export_sol = true, cross_section_cuts = true, cut_levels = "auto", deform = true, simple_cuts = true, cut_npoints::Int = 500, vol_cut = "auto", eps_gfind = 1e-12, upscaling = 0, kwargs...)
 
     if typeof(filename) <: Dict
         d = filename
@@ -426,6 +426,22 @@ function postprocess(filename = nothing; watson_datasubdir = watson_datasubdir, 
         mkpath(datadir(watson_datasubdir, filename_cuts))
         diam = geometry[1] + geometry[2]
         plane_points = [[-0.25*diam,-0.25*diam],[0.25*diam,-0.25*diam],[-0.25*diam,0.25*diam]] # = [X,Y] coordinates of the three points that define the cut plane
+        # rescale cut_npoints based on geometry to fit cross section in a rectangle
+        if cross_section == 1
+            if rotate == 0
+                cut_npoints = [cut_npoints, Int(ceil(cut_npoints*(2*diam/sqrt(3)+geometry[3])/diam))]
+            elseif rotate == 90
+                cut_npoints = [Int(ceil(cut_npoints*(2*diam/sqrt(3)+geometry[3])/diam)), cut_npoints]
+            end
+        elseif cross_section == 2
+            if rotate == 0
+                cut_npoints = [cut_npoints, Int(ceil(cut_npoints*sqrt(3)/2*(diam+geometry[3])/diam))]
+            elseif rotate == 90
+                cut_npoints = [Int(ceil(cut_npoints*sqrt(3)/2*(diam+geometry[3])/diam)), cut_npoints]
+            end
+        else
+            cut_npoints = [cut_npoints, cut_npoints]
+        end
         if simple_cuts # needs grid that triangulates cut_levels
             perform_simple_plane_cuts(datadir(watson_datasubdir, filename_cuts), solution, plane_points, cut_levels; eps0 = d["eps0"], eps_gfind = eps_gfind, deform = deform, cut_npoints = cut_npoints, only_localsearch = true, strain_model = strainm, Plotter = Plotter, upscaling = upscaling)
         else
