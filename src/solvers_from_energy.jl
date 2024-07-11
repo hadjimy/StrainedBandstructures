@@ -1,8 +1,10 @@
-mutable struct EnergyOperator{MT, STTType}
+mutable struct EnergyOperator{MT, STTType, PETType, T}
     M::Array{Matrix{MT},1}
     detM::Array{MT,1}
     invM::Array{Matrix{MT},1}
+    kappar::T
     STT::STTType
+    PET::PETType
     eval_W!::Function
 	eval_∂FW!::Function
 end
@@ -14,24 +16,27 @@ function update_M!(EO::EnergyOperator, M)
     EO.eval_W!, EO.eval_∂FW! = ∂FW!(EO.M, EO.invM, EO.detM, EO.STT)
 end
 
-function EnergyOperator(M, STT)
+function EnergyOperator(M, STT, PET = nothing, kappar = nothing)
     detM = [det(m) for m in M]
     invM = [inv(m) for m in M]
-    eval_W!, eval_∂FW! = ∂FW!(M, invM, detM, STT)
-    return EnergyOperator(M, detM, invM, STT, eval_W!, eval_∂FW!)
+    eval_W!, eval_∂FW! = ∂FW!(M, invM, detM, STT, PET, kappar)
+    return EnergyOperator(M, detM, invM, kappar, STT, PET, eval_W!, eval_∂FW!)
 end
 
 
 ## derivative of energy (by ForwardDiff)
-function ∂FW!(M, invM, detM, STT)
+function ∂FW!(M, invM, detM, STT, PET = nothing, kappar = nothing)
     Dresult = nothing
 	cfg = nothing
 	result_dummy = nothing
     Fel = nothing
     ϵ = nothing
     Cϵ = nothing
+    Eϵ = nothing
+    A = nothing
+    polarisation = PET !== nothing
 
-    function Wgeneral!(result, _ϵ, _Cϵ, _F, region)
+    function Wgeneral!(result, _ϵ, _Cϵ, _Eϵ, _A, _F, _E, region)
         # compute strain ϵ := (F'F - I)/2
         compute_strain!(_ϵ, _F)
 
@@ -40,9 +45,20 @@ function ∂FW!(M, invM, detM, STT)
 
         # compute energy
         result[1] = dot(_Cϵ, _ϵ) / 2
+
+        if polarisation
+            apply_piezoelectricity_tensor!(_Eϵ, _ϵ, PET[region])
+
+            result[1] -= dot(_Eϵ, _E)
+
+            compute_invFTE!(_A,_F,_E)
+            J = -(F[3]*(F[5]*F[7] - F[4]*F[8]) + F[2]*((-F[6])*F[7] + F[4]*F[9]) + F[1]*(F[6]*F[8] - F[5]*F[9])) # = det(F)
+
+            result[1] -= kappar[region]*dot(_A,_A)/(2*J)
+        end
     end
 
-    function _W!(result, Fel, ϵ, Cϵ, F, qpinfo)
+    function _W!(result, Fel, ϵ, Cϵ, Eϵ, A, F, E, qpinfo)
         ## extract region number
         region = qpinfo.region
 
@@ -50,35 +66,46 @@ function ∂FW!(M, invM, detM, STT)
         multiply_matrices_as_vectors!(Fel, F, invM[region])
 
         ## evaluate general energy
-        Wgeneral!(result, ϵ, Cϵ, Fel, region)
+        Wgeneral!(result, ϵ, Cϵ, Eϵ, A, Fel, E, region)
 
         ## multiply det(M)
         result .*= detM[region]
     end
 
-    function W!(result, _F, qpinfo)
-        if Fel == nothing
-            Fel = zeros(eltype(_F), 9)
-            ϵ = zeros(eltype(_F), 6)
-            Cϵ = zeros(eltype(_F), 6)
+    function W!(result, input, qpinfo)
+        _F = view(input, 1:9)
+        if polarisation
+            _E = view(input, 10:12)
+        else
+            _E = nothing
         end
-        _W!(result, Fel, ϵ, Cϵ, _F, qpinfo)
+        if Fel == nothing
+            Fel = zeros(eltype(input), 9)
+            ϵ = zeros(eltype(input), 6)
+            Cϵ = zeros(eltype(input), 6)
+            Eϵ = zeros(eltype(input), 3)
+            A = zeros(eltype(input), 3)
+        end
+        _W!(result, Fel, ϵ, Cϵ, Eϵ, A, _F, _E, qpinfo)
     end
 
 	energy(qpinfo) = (a, b) -> W!(a, b, qpinfo)
 	
-    function _closure(result, ∇u, qpinfo, result_dummy, Dresult, cfg)
-		Dresult = ForwardDiff.vector_mode_jacobian!(Dresult, energy(qpinfo), result_dummy, ∇u, cfg)
+    function _closure(result, input, qpinfo, result_dummy, Dresult, cfg)
+		Dresult = ForwardDiff.vector_mode_jacobian!(Dresult, energy(qpinfo), result_dummy, input, cfg)
 		result .= view(DiffResults.jacobian(Dresult), :)
     end
 
-	function closure(result, ∇u, qpinfo)
+	function closure(result, input, qpinfo)
+        ∇u = view(input, 1:9)
+        ∇V = polarisation ? view(input, 10:12) : nothing
+
 
 		if Dresult === nothing
 			## first initialization of DResult when type of F is known
-			result_dummy = zeros(eltype(∇u), 1)
-			Dresult = DiffResults.JacobianResult(result_dummy, ∇u)
-			cfg = ForwardDiff.JacobianConfig(energy(qpinfo), result_dummy, ∇u, ForwardDiff.Chunk{length(∇u)}())
+			result_dummy = zeros(eltype(input), 1)
+			Dresult = DiffResults.JacobianResult(result_dummy, input)
+			cfg = ForwardDiff.JacobianConfig(energy(qpinfo), result_dummy, input, ForwardDiff.Chunk{length(input)}())
 		end
 
         ## compute F := I + ∇u from ∇u (below ∇u acts as F)
@@ -86,8 +113,13 @@ function ∂FW!(M, invM, detM, STT)
         ∇u[5] += 1
         ∇u[9] += 1
 
+        ## compute E = -∇V
+        if polarisation
+            ∇V .*= -1
+        end
+
         ## we can take the derivative with respect to ∇u, since F = I + ∇u and therefore ∂F = ∂F(∇u)
-        _closure(result, ∇u, qpinfo, result_dummy, Dresult, cfg)
+        _closure(result, input, qpinfo, result_dummy, Dresult, cfg)
 		return nothing
 	end
 
@@ -116,4 +148,11 @@ function compute_strain!(ϵ, F) # ϵ = (F'*F - I)/2
     ϵ[5] = 2*(F[1] * F[3] + F[4] * F[6] + F[7] * F[9])
     ϵ[6] = 2*(F[2] * F[1] + F[5] * F[4] + F[8] * F[7])
     ϵ ./= 2
+end
+
+function compute_invFTE!(A,F,E)
+    # computes A = inv(F)^T*E * (-det(F))
+    A[1] = E[3]*(F[5]*F[7] - F[4]*F[8]) + E[2]*((-F[6])*F[7] + F[4]*F[9]) + E[1]*(F[6]*F[8] - F[5]*F[9])
+    A[2] = E[3]*((-F[2])*F[7] + F[1]*F[8]) + E[2]*(F[3]*F[7] - F[1]*F[9]) + E[1]*((-F[3])*F[8] + F[2]*F[9])
+    A[3] = E[3]*(F[2]*F[4] - F[1]*F[5]) + E[2]*((-F[3])*F[4] + F[1]*F[6]) + E[1]*(F[3]*F[5] - F[2]*F[6])
 end

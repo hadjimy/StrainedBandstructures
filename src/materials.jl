@@ -234,11 +234,11 @@ function set_data(materials::Array{DataType,1}, MST::Type{<:MaterialStructureTyp
                        0   0   0   0 C44   0
                        0   0   0   0   0 C44 ])
 
-                       # piezoelectric tensor in C/(m^2)
+            # piezoelectric tensor in C/(nm^2)
             # Equation (22)
             E14zb = data[m].PiezoElectricConstants["E14zb"]
             E[m] = CustomMatrixPiezoElectricityTensor(
-                  [0 0 0 E14zb     0     0
+                  1e-9*[0 0 0 E14zb     0     0
                    0 0 0     0 E14zb     0
                    0 0 0     0     0 E14zb])
         elseif MST <: ZincBlende2D
@@ -252,10 +252,10 @@ function set_data(materials::Array{DataType,1}, MST::Type{<:MaterialStructureTyp
                           C12 C11   0
                             0   0 C44 ])
 
-            # piezoelectric tensor in C/(m^2)
+            # piezoelectric tensor in C/(nm^2)
             E14zb = data[m].PiezoElectricConstants["E14zb"]
             E[m] = CustomMatrixPiezoElectricityTensor(
-                [E14zb     0 0 0 0 0
+                1e-9*[E14zb     0 0 0 0 0
                      0 E14zb 0 0 0 0])
         elseif MST <: ZincBlende111_C14 || MST <: ZincBlende111_C15 || MST <: ZincBlende111_C14_C15
             C11 = data[m].ElasticConstants["C11"]
@@ -299,7 +299,7 @@ function set_data(materials::Array{DataType,1}, MST::Type{<:MaterialStructureTyp
                             0       0       0       -C15p   C14p    C66p])
             end
 
-            # piezoelectric tensor in C/(m^2)
+            # piezoelectric tensor in C/(nm^2)
             # Equation (27)
             E14zb = data[m].PiezoElectricConstants["E14zb"]
             E11 = - sqrt(2/3) * E14zb
@@ -309,7 +309,7 @@ function set_data(materials::Array{DataType,1}, MST::Type{<:MaterialStructureTyp
             E33 = 2/sqrt(3) * E14zb
 
             E[m] = CustomMatrixPiezoElectricityTensor(
-                   [E11 E12 0   0   E15 0
+                   1e-9*[E11 E12 0   0   E15 0
                     0   0   0   E15 0   E12
                     E31 E31 E33 0   0   0])
         elseif MST <: Wurtzite0001
@@ -333,13 +333,13 @@ function set_data(materials::Array{DataType,1}, MST::Type{<:MaterialStructureTyp
                           0     0     0     0     C44wz 0
                           0     0     0     0     0     C66wz ])
 
-            # piezoelectric tensor in C/(m^2)
+            # piezoelectric tensor in C/(nm^2)
             # Equation (25)
             E31wz = data[m].PiezoElectricConstants["E31wz"]
             E33wz = data[m].PiezoElectricConstants["E33wz"]
             E15wz = data[m].PiezoElectricConstants["E15wz"]
             E[m] = CustomMatrixPiezoElectricityTensor(
-                   [     0     0     0     0  E15wz  0 
+                   1e-9*[     0     0     0     0  E15wz  0 
                          0     0     0 E15wz      0  0 
                      E31wz E31wz E33wz     0      0  0 ])
         end
