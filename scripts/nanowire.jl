@@ -223,8 +223,10 @@ function main(d = nothing; verbosity = 0, Plotter = nothing, force::Bool = false
 
     ## define unknnowns
     u = Unknown("u"; name = "discplacement")
+    V = Unknown("V"; name = "Polarisation potential")
 
     if (use_lowlevel_solver)
+        @assert polarisation == false
         BoundaryOperator = HomogeneousBoundaryData(1; regions = regions_bc)
         DisplacementOperator = get_displacement_operator_new(MD.TensorC, strainm, estrainm, eps0, a; dim = 3, displacement = u, emb = parameters, regions = 1:nregions, bonus_quadorder = bonus_quadorder)
         PolarisationOperator = nothing
@@ -244,10 +246,18 @@ function main(d = nothing; verbosity = 0, Plotter = nothing, force::Bool = false
         ## problem description
         PD = ProblemDescription("My problem")
         assign_unknown!(PD, u)
+        if polarisation
+            assign_unknown!(PD, V)
+        end
         quadorder = (femorder-1)*2 + bonus_quadorder
         M = [Matrix(diagm(1.0 .+ ai)) for ai in eps0]
-        EO = EnergyOperator(M, MD.TensorC)
-        opid = assign_operator!(PD, NonlinearOperator(EO.eval_∂FW!, [grad(u)]; sparse_jacobians = false, quadorder = quadorder, damping = damping))
+        kappa0 = 8.854e-12 # [[C^2/(N m^2)]]
+        EO = EnergyOperator(M, MD.TensorC, polarisation ? MD.TensorE : nothing, [MD.data[j].kappar for j = 1:3] .* kappa0)
+        if polarisation
+            opid = assign_operator!(PD, NonlinearOperator(EO.eval_∂FW!, [grad(u), grad(V)]; sparse_jacobians = false, quadorder = quadorder, damping = damping))
+        else
+            opid = assign_operator!(PD, NonlinearOperator(EO.eval_∂FW!, [grad(u)]; sparse_jacobians = false, quadorder = quadorder, damping = damping))
+        end
         assign_operator!(PD, HomogeneousBoundaryData(u; regions = [4,5,6]))
 
         FES = [FESpace{FEType_D}(xgrid), FESpace{FEType_P}(xgrid)]
@@ -257,7 +267,11 @@ function main(d = nothing; verbosity = 0, Plotter = nothing, force::Bool = false
         for j = 1 : nsteps
             M = [Matrix(diagm(1 .+ ai*j/nsteps)) for ai in eps0]
             update_M!(EO, M)
-            replace_operator!(PD, opid, NonlinearOperator(EO.eval_∂FW!, [grad(u)]; sparse_jacobians = false, quadorder = quadorder))
+            if polarisation
+                replace_operator!(PD, opid, NonlinearOperator(EO.eval_∂FW!, [grad(u), grad(V)]; sparse_jacobians = false, quadorder = quadorder))
+            else
+                replace_operator!(PD, opid, NonlinearOperator(EO.eval_∂FW!, [grad(u)]; sparse_jacobians = false, quadorder = quadorder))
+            end
             Solution, SC = ExtendableFEM.solve(PD, FES, SC; init = Solution, maxiterations = maxits, return_config = true, method_linear = linsolver, target_residual = tres, damping = damping)
             last_residual = residual(SC)
         end
