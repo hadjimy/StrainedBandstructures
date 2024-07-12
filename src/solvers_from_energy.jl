@@ -13,7 +13,7 @@ function update_M!(EO::EnergyOperator, M)
     EO.M .= M
     EO.detM .= [det(m) for m in M]
     EO.invM .= [inv(m) for m in M]
-    EO.eval_W!, EO.eval_∂FW! = ∂FW!(EO.M, EO.invM, EO.detM, EO.STT)
+    EO.eval_W!, EO.eval_∂FW! = ∂FW!(EO.M, EO.invM, EO.detM, EO.STT, EO.PET, EO.kappar)
 end
 
 function EnergyOperator(M, STT, PET = nothing, kappar = nothing)
@@ -52,7 +52,7 @@ function ∂FW!(M, invM, detM, STT, PET = nothing, kappar = nothing)
             result[1] -= dot(_Eϵ, _E)
 
             compute_invFTE!(_A,_F,_E)
-            J = -(F[3]*(F[5]*F[7] - F[4]*F[8]) + F[2]*((-F[6])*F[7] + F[4]*F[9]) + F[1]*(F[6]*F[8] - F[5]*F[9])) # = det(F)
+            J = detF(_F)
 
             result[1] -= kappar[region]*dot(_A,_A)/(2*J)
         end
@@ -155,4 +155,8 @@ function compute_invFTE!(A,F,E)
     A[1] = E[3]*(F[5]*F[7] - F[4]*F[8]) + E[2]*((-F[6])*F[7] + F[4]*F[9]) + E[1]*(F[6]*F[8] - F[5]*F[9])
     A[2] = E[3]*((-F[2])*F[7] + F[1]*F[8]) + E[2]*(F[3]*F[7] - F[1]*F[9]) + E[1]*((-F[3])*F[8] + F[2]*F[9])
     A[3] = E[3]*(F[2]*F[4] - F[1]*F[5]) + E[2]*((-F[3])*F[4] + F[1]*F[6]) + E[1]*(F[3]*F[5] - F[2]*F[6])
+end
+
+function detF(F)
+    return -(F[3]*(F[5]*F[7] - F[4]*F[8]) + F[2]*((-F[6])*F[7] + F[4]*F[9]) + F[1]*(F[6]*F[8] - F[5]*F[9]))
 end
