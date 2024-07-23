@@ -47,21 +47,22 @@ function ∂FW!(M, invM, detM, STT, PET = nothing, kappar = nothing)
         result[1] = dot(_Cϵ, _ϵ) / 2
 
         if polarisation
+            ## apply piezo-eletricity tensor Eϵ = E : ϵ
             apply_piezoelectricity_tensor!(_Eϵ, _ϵ, PET[region])
 
+            ## add to energy
             result[1] -= dot(_Eϵ, _E)
 
+            ## compute A := inv(F)'*E*J where J = det(F)
             compute_invFTE!(_A,_F,_E)
             J = detF(_F)
 
+            ## add kappar*dot(A,A)/(2*J)
             result[1] -= kappar[region]*dot(_A,_A)/(2*J)
         end
     end
 
-    function _W!(result, Fel, ϵ, Cϵ, Eϵ, A, F, E, qpinfo)
-        ## extract region number
-        region = qpinfo.region
-
+    function _W!(result, Fel, ϵ, Cϵ, Eϵ, A, F, E, region)
         ## compute elastic strain F_el = F*inv(M)
         multiply_matrices_as_vectors!(Fel, F, invM[region])
 
@@ -74,11 +75,7 @@ function ∂FW!(M, invM, detM, STT, PET = nothing, kappar = nothing)
 
     function W!(result, input, qpinfo)
         _F = view(input, 1:9)
-        if polarisation
-            _E = view(input, 10:12)
-        else
-            _E = nothing
-        end
+        _E = polarisation ? view(input, 10:12) : nothing
         if Fel == nothing
             Fel = zeros(eltype(input), 9)
             ϵ = zeros(eltype(input), 6)
@@ -86,7 +83,7 @@ function ∂FW!(M, invM, detM, STT, PET = nothing, kappar = nothing)
             Eϵ = zeros(eltype(input), 3)
             A = zeros(eltype(input), 3)
         end
-        _W!(result, Fel, ϵ, Cϵ, Eϵ, A, _F, _E, qpinfo)
+        _W!(result, Fel, ϵ, Cϵ, Eϵ, A, _F, _E, qpinfo.region)
     end
 
 	energy(qpinfo) = (a, b) -> W!(a, b, qpinfo)
@@ -99,7 +96,6 @@ function ∂FW!(M, invM, detM, STT, PET = nothing, kappar = nothing)
 	function closure(result, input, qpinfo)
         ∇u = view(input, 1:9)
         ∇V = polarisation ? view(input, 10:12) : nothing
-
 
 		if Dresult === nothing
 			## first initialization of DResult when type of F is known

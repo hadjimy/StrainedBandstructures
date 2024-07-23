@@ -53,7 +53,7 @@ function exportVTK(filename, eps0, Displacement::FEVectorBlock{T,Tv,Ti,FEType,AP
         lazy_interpolate!(ElasticStrain[1], [Displacement], [grad(1)]; postprocess = strain_postprocess, eps = eps_gfind)
 
         if Polarisation !== nothing
-            Solution_plot = [Displacement, Strain[1], Strain2[1], Polarisation]
+            Solution_plot = [Displacement, Strain[1], ElasticStrain[1], Polarisation]
         else
             Solution_plot = [Displacement, Strain[1], ElasticStrain[1]]
         end
