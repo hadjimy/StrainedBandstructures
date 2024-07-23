@@ -491,6 +491,11 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
 
         ## interpolate identity at nodes4level
         nodevals = nodevalues(Solution[1], Identity; continuous = true, nodes = nodes4level)
+        if length(Solution) > 1
+            nodevals_P = nodevalues(Solution[2], Identity; continuous = true, nodes = nodes4level)
+        else
+            nodevals_P = nothing
+        end
 
         ## get displaced cut_grid from function defined above
         cut_grid = get_cutgrid(nodes4level, faces4level)
@@ -500,14 +505,19 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
         subgrid2 = subgrid(cut_grid, [3]; boundary = false)
 
         ## get parent nodes for each subgrid
-        subnodes1 = subgrid1[ExtendableGrids.NodeInParent]
-        subnodes2 = subgrid2[ExtendableGrids.NodeInParent]
+        subnodes1 = subgrid1[ExtendableGrids.NodeParents]
+        subnodes2 = subgrid2[ExtendableGrids.NodeParents]
         subgrid1[Coordinates] = cut_grid[Coordinates][:,subnodes1]
         subgrid2[Coordinates] = cut_grid[Coordinates][:,subnodes2]
 
         ## interpolate data on cut_grid
         @info "Interpolating data on cut mesh..."
         nodevals_gradient = nodevalues(Solution[1], Gradient; nodes = nodes4level)
+        if length(Solution) > 1
+            nodevals_E = nodevalues(Solution[2], Gradient; nodes = nodes4level)
+        else
+            nodevals_E = nothing
+        end
         nodevals_ϵu = zeros(Float64,6,nnodes_cut)
         nodevals_ϵu_elastic = zeros(Float64,6,nnodes_cut)
         
@@ -591,6 +601,10 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
         kwargs[:grad_displacement] = nodevals_gradient
         kwargs[:strain] = nodevals_ϵu
  #       kwargs[:elastic_strain] = nodevals_ϵu_elastic
+        if length(Solution) > 1
+            kwargs[:polarisation] = nodevals_P
+            kwargs[:electric_field] = nodevals_E
+        end
 
         kwargs1 = Dict()
         kwargs1[:elastic_strain] = nodevals_ϵu1
@@ -930,7 +944,7 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
             kwargs[:elastic_strain] = view(nodevalues(CutSolution_ϵu_elastic[1], Identity),:,:)
             if length(Solution) > 1
                 kwargs[:polarisation] = view(nodevalues(CutSolution_P[1], Identity),:,:)
-                kwargs[:polarisation] = view(nodevalues(CutSolution_∇P[1], Identity),:,:)
+                kwargs[:electric_field] = view(nodevalues(CutSolution_∇P[1], Identity),:,:)
             end
             ExtendableGrids.writeVTK(target_folder_cut_level * "uniform_cut_$(cut_level)_data" * (deform ? "_deformed.vtu" : ".vtu"), xgrid_uni; kwargs...)
            
