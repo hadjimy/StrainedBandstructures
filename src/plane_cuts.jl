@@ -608,8 +608,10 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
 
         kwargs1 = Dict()
         kwargs1[:elastic_strain] = nodevals_ϵu1
+        kwargs1[:electric_field] = nodevals_E1
         kwargs2 = Dict()
         kwargs2[:elastic_strain] = nodevals_ϵu2
+        kwargs2[:electric_field] = nodevals_E2
         ExtendableGrids.writeVTK(target_folder_cut_level * "simple_cut_$(cut_level)_data" * (deform ? "_deformed.vtu" : ".vtu"), cut_grid; kwargs...)
         ExtendableGrids.writeVTK(target_folder_cut_level * "simple_cut_$(cut_level)_data_subgrid1" * (deform ? "_deformed.vtu" : ".vtu"), subgrid1; kwargs1...)
         ExtendableGrids.writeVTK(target_folder_cut_level * "simple_cut_$(cut_level)_data_subgrid2" * (deform ? "_deformed.vtu" : ".vtu"), subgrid2; kwargs2...)
