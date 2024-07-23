@@ -271,6 +271,7 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
         @error "cut_direction needs to be 1,2 or 3"
     end
 
+    PolarisationGradient = nothing
     if upscaling > 0
         xgrid_original = Solution_original[1].FES.xgrid
         xgrid = uniform_refine(xgrid_original, upscaling)
@@ -281,9 +282,15 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
         #interpolate!(Solution[2], Solution_original[2])
         DisplacementGradient = continuify(Solution[1], Gradient)
         @info "STARTING CUTTING..."
+        if length(Solution) > 1
+            PolarisationGradient = continuify(Solution[2], Gradient)
+        end
     else
         Solution = Solution_original
         DisplacementGradient = continuify(Solution[1], Gradient)
+        if length(Solution) > 1
+            PolarisationGradient = continuify(Solution[2], Gradient)
+        end
         xgrid = Solution_original[1].FES.xgrid
     end
 
@@ -510,6 +517,12 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
         nodevals_ϵu1 = zeros(Float64,6,size(nodevals_gradient1,2))
         nodevals_ϵu2 = zeros(Float64,6,size(nodevals_gradient2,2))
 
+        ## compute nodevalues for polarisatin/electri field on subgrids
+        nodevals_P1 = nodevalues(Solution[2], Identity; regions = [1,2], nodes = nodes4level[subnodes1])
+        nodevals_P2 = nodevalues(Solution[2], Identity; regions = [3], nodes = nodes4level[subnodes2])
+        nodevals_E1 = nodevalues(Solution[2], Gradient; regions = [1,2], nodes = nodes4level[subnodes1])
+        nodevals_E2 = nodevalues(Solution[2], Gradient; regions = [3], nodes = nodes4level[subnodes2])
+
         ## now displace the grid if deform is true
         xCoordinatesCut3D = cut_grid[Coordinates]
         if deform
@@ -623,6 +636,40 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
             close(io)
         end
 
+            ## write polarisation potential and eletric field maps into txt files
+            @info "Writing polarisation potential file for e$(component_names[c]) on subgrids..."
+            filename_P = target_folder_cut_level * "P_subgrid1.dat"
+            io = open(filename_P, "w")
+            for n = 1 : length(subnodes1)
+                @printf(io, "%.6f\n",nodevals_P1[n])
+            end
+            close(io)
+            filename_P = target_folder_cut_level * "P_subgrid2.dat"
+            io = open(filename_P, "w")
+            for n = 1 : length(subnodes2)
+                @printf(io, "%.6f\n",nodevals_P2[n])
+            end
+            close(io)
+
+            pcomponents = ["Ex","Ey","Ez"]
+            for c = 1 : 3
+                @info "Writing electric field file for $(pcomponents[c]) on subgrids..."
+                filename_Ec = target_folder_cut_level * pcomponents[c] * "_subgrid1.dat"
+                io = open(filename_Ec, "w")
+                #@printf(io, "%s\n", component_names[c])
+                for n = 1 : length(subnodes1)
+                    @printf(io, "%.6f\n",nodevals_E1[c,n])
+                end
+                close(io)
+                filename_Ec = target_folder_cut_level * pcomponents[c] * "_subgrid2.dat"
+                io = open(filename_Ec, "w")
+                #@printf(io, "%s\n", component_names[c])
+                for n = 1 : length(subnodes2)
+                    @printf(io, "%.6f\n",nodevals_E2[c,n])
+                end
+                close(io)
+            end
+
         xmin = minimum(view(xCoordinatesCutPlane,a,:))
         xmax = maximum(view(xCoordinatesCutPlane,a,:))
         ymin = minimum(view(xCoordinatesCutPlane,b,:))
@@ -714,11 +761,13 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
             FES2D_∇u = FESpace{H1P1{9}}(xgrid_uni)
             FES2D_ϵ = FESpace{H1P1{6}}(xgrid_uni)
             FES2D_P = FESpace{H1P1{1}}(xgrid_uni)
+            FES2D_∇P = FESpace{H1P1{3}}(xgrid_uni)
             CutSolution_u = FEVector(FES2D)
             CutSolution_∇u = FEVector(FES2D_∇u)
             CutSolution_ϵu = FEVector(FES2D_ϵ)
             CutSolution_ϵu_elastic = FEVector(FES2D_ϵ)
             CutSolution_P = FEVector(FES2D_P)
+            CutSolution_∇P = FEVector(FES2D_∇P)
             eps0_fefunc_uni = FEVector(FESpace{H1P1{3}}(xgrid_uni))
 
             # mapping from 3D coordinates on cut_grid to 2D coordinates on xgrid_uni
@@ -746,6 +795,7 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
                 lazy_interpolate!(CutSolution_∇u[1], DisplacementGradient, [id(1)]; xtrafo = xtrafo!, start_cell = start_cell, not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
                 if length(Solution) > 1
                     lazy_interpolate!(CutSolution_P[1], Solution, [id(2)]; xtrafo = xtrafo!, start_cell = start_cell, not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
+                    lazy_interpolate!(CutSolution_∇P[1], PolarisationGradient, [id(1)]; xtrafo = xtrafo!, start_cell = start_cell, not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
                 end
                 displace_mesh!(xgrid, Solution[1]; magnify = -1)
             else
@@ -754,6 +804,7 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
                 lazy_interpolate!(CutSolution_∇u[1], DisplacementGradient, [id(1)]; not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
                 if length(Solution) > 1
                     lazy_interpolate!(CutSolution_P[1], Solution, [id(2)]; not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
+                    lazy_interpolate!(CutSolution_∇P[1], PolarisationGradient, [id(1)]; not_in_domain_value = NaN, only_localsearch = only_localsearch, eps = eps_gfind)
                 end
             end
 
@@ -879,6 +930,7 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
             kwargs[:elastic_strain] = view(nodevalues(CutSolution_ϵu_elastic[1], Identity),:,:)
             if length(Solution) > 1
                 kwargs[:polarisation] = view(nodevalues(CutSolution_P[1], Identity),:,:)
+                kwargs[:polarisation] = view(nodevalues(CutSolution_∇P[1], Identity),:,:)
             end
             ExtendableGrids.writeVTK(target_folder_cut_level * "uniform_cut_$(cut_level)_data" * (deform ? "_deformed.vtu" : ".vtu"), xgrid_uni; kwargs...)
            
@@ -889,8 +941,9 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
             replace!(CutSolution_ϵu.entries, NaN=>1e30)
             replace!(CutSolution_ϵu_elastic.entries, NaN=>1e30)
             replace!(CutSolution_P.entries, NaN=>1e30)
+            replace!(CutSolution_∇P.entries, NaN=>1e30)
 
-            ## write material map into txt files
+            ## write strain distribution maps into txt files
             for c = 1 : 6
                 @info "Writing strain distribution file for e$(component_names[c])..."
                 filename_eAB = target_folder_cut_level * 'e' * component_names[c] * ".dat"
@@ -906,6 +959,26 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
                 #@printf(io, "%s\n", component_names[c])
                 for n = 1 : nnodes_uni
                     @printf(io, "%.6f\n",CutSolution_ϵu_elastic.entries[(c-1)*nnodes_uni+n])
+                end
+                close(io)
+            end
+
+            ## write polarisation potential and eletric field maps into txt files
+            @info "Writing polarisation potential file for e$(component_names[c])..."
+            filename_P = target_folder_cut_level * "P.dat"
+            io = open(filename_P, "w")
+            for n = 1 : nnodes_uni
+                @printf(io, "%.6f\n",CutSolution_P.entries[n])
+            end
+            close(io)
+            pcomponents = ["Ex","Ey","Ez"]
+            for c = 1 : 3
+                @info "Writing electric field file for $(pcomponents[c])..."
+                filename_Ec = target_folder_cut_level * pcomponents[c] * ".dat"
+                io = open(filename_Ec, "w")
+                #@printf(io, "%s\n", component_names[c])
+                for n = 1 : nnodes_uni
+                    @printf(io, "%.6f\n",CutSolution_∇P.entries[(c-1)*nnodes_uni+n])
                 end
                 close(io)
             end
