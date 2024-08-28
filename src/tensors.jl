@@ -1,9 +1,26 @@
+"""
+$(TYPEDEF)
+"""
 abstract type ElasticityTensorType{T} end
+
+"""
+    $(TYPEDEF)
+
+Isotropic elasticity tensor with two Lame parameters λ and μ.
+"""
 struct IsotropicElasticityTensor{dim,T} <: ElasticityTensorType{T} 
     λ::T
     μ::T
     IsotropicElasticityTensor(λ,μ,dim) = new{dim, Float64}(λ,μ)
 end
+
+
+"""
+    $(TYPEDEF)
+
+Custom elasticity tensor that takes any matrix (e.g. 3x3 in 2D and 6x6 in 3D),
+that encodes the mapping of the strain (in Voigt notation) to the stress tensor (in Voigt notation)
+"""
 struct CustomMatrixElasticityTensor{T} <: ElasticityTensorType{T}
     C::Matrix{T}
 end
@@ -43,7 +60,18 @@ end
 
 
 
+"""
+    $(TYPEDEF)
+
+"""
 abstract type PiezoElectricityTensorType{T} end
+
+"""
+    $(TYPEDEF)
+
+Custom piezo-elecitrcity tensor that takes any matrix (e.g. 3x2 in 2D and 6x3 in 3D),
+that encodes the mapping of the stress (in Voigt notation) to the polarization.
+"""
 struct CustomMatrixPiezoElectricityTensor{T} <: PiezoElectricityTensorType{T}
     C::Matrix{T}
 end
