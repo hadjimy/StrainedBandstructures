@@ -144,7 +144,7 @@ function MaterialDataset(MT::Type{GaAs}, MST::Type{<:MaterialStructureType})
     PiezoElectricConstants = Dict()
     # Quasi-cubic approximation using the values from Beya-Wakata et al., Phys. Rev. B 84, 195207 (2011)
     # see also Bernardini et al., Phys. Rev. B 56, R10024 (1997)
-    PiezoElectricConstants["E14zb"] = −0.2381 # Beya-Wakata et al., Phys. Rev. B 84, 195207 (2011), other value from O.M.: PiezoElectricConstants["E15wz"] # Michele Catti  ASCS2006, Spokane
+    PiezoElectricConstants["E14zb"] = -0.2381 # Beya-Wakata et al., Phys. Rev. B 84, 195207 (2011), other value from O.M.: PiezoElectricConstants["E15wz"] # Michele Catti  ASCS2006, Spokane
     PiezoElectricConstants["E31wz"] = -1/sqrt(3)*PiezoElectricConstants["E14zb"] # other value from O.M.: 0.1328
     PiezoElectricConstants["E33wz"] = 2/sqrt(3)*PiezoElectricConstants["E14zb"]  # other value from O.M.: -0.2656
     PiezoElectricConstants["E15wz"] = PiezoElectricConstants["E31wz"] # other value from O.M.: -0.2656 / 6.4825 * 3.9697 # Michele Catti  ASCS2006, Spokane

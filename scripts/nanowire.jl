@@ -255,6 +255,7 @@ function main(d = nothing; verbosity = 0, Plotter = nothing, force::Bool = false
         EO = EnergyOperator(M, MD.TensorC, polarisation ? MD.TensorE : nothing, [MD.data[j].kappar for j = 1:3] .* kappa0)
         if polarisation
             opid = assign_operator!(PD, NonlinearOperator(EO.eval_∂FW!, [grad(u), grad(V)]; sparse_jacobians = false, quadorder = quadorder, damping = damping))
+            assign_operator!(PD, HomogeneousBoundaryData(V; regions = [4,5,6]))
         else
             opid = assign_operator!(PD, NonlinearOperator(EO.eval_∂FW!, [grad(u)]; sparse_jacobians = false, quadorder = quadorder, damping = damping))
         end
@@ -265,6 +266,7 @@ function main(d = nothing; verbosity = 0, Plotter = nothing, force::Bool = false
         Solution = FEVector(FES; tags = PD.unknowns)
         last_residual = 0.0
         for j = 1 : nsteps
+            println("Step $(j) out of $(nsteps)")
             M = [Matrix(diagm(1 .+ ai*j/nsteps)) for ai in eps0]
             update_M!(EO, M)
             if polarisation
