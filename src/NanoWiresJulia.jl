@@ -16,6 +16,7 @@ using ForwardDiff
 using Symbolics
 using SparseArrays
 using SparseDiffTools
+using DocStringExtensions
 
 
 

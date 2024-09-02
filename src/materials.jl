@@ -1,24 +1,79 @@
+
+"""
+    $(TYPEDEF)
+"""
 abstract type MaterialType end
 abstract type TestMaterial{x} <: MaterialType where {x <: Float64} end
+"""
+    $(TYPEDEF)
+
+    Gallium Arsenite
+"""
 abstract type GaAs <: MaterialType end
+"""
+    $(TYPEDEF)
+
+    Alluminum-Indium-Arsenite compound where x ...
+"""
 abstract type AlInAs{x} <: MaterialType where {x <: Float64} end
+"""
+    $(TYPEDEF)
+
+    Alluminum-Gallium-Arsenite compound where x ...
+"""
 abstract type AlGaAs{x} <: MaterialType where {x <: Float64} end
+"""
+    $(TYPEDEF)
+
+    Indium-Gallium-Arsenite compound where x ...
+"""
 abstract type InGaAs{x} <: MaterialType where {x <: Float64} end
+
 Base.String(T::Type{<:TestMaterial}) = "Test($(T.parameters[1])))"
 Base.String(::Type{GaAs}) = "GaAs"
 Base.String(T::Type{<:AlInAs}) = "Al_$(T.parameters[1])In_$(1 - T.parameters[1])As"
 Base.String(T::Type{<:AlGaAs}) = "Al_$(T.parameters[1])Ga_$(1 - T.parameters[1])As"
 Base.String(T::Type{<:InGaAs}) = "In_$(T.parameters[1])Ga_$(1 - T.parameters[1])As"
 
+"""
+    $(TYPEDEF)
+
+Data set that collects all parameters for a material (region), i.e.
+elastic constants, piezoelextric constants, lattice constants, the spontaneous polarization constant and the relative dielectric constant.
+"""
 struct MaterialDataset{T, MT <: MaterialType, MST <: MaterialStructureType}
+    """
+    Elastic Constants
+    """
     ElasticConstants::Dict
+    """
+    Piezoelectric constants
+    """
     PiezoElectricConstants::Dict
+    """
+    Lattice constants
+    """
     LatticeConstants::Array{T,1}
+    """
+    spontaneous polarization
+    """
     Psp::Array{T,1}
+    """
+    relative dielectric constant 
+    """
     kappar::T
 end
 
-# constructor for isotropic tensor from material data
+
+
+"""
+````
+function IsotropicElasticityTensor(MD::MaterialDataset)
+````
+
+Construct an isotropic elasticity tensor from the given MaterialDataSet.
+
+"""
 function IsotropicElasticityTensor(MD::MaterialDataset{T, MT, MST}) where {T,MT,MST}
     # compute Lamé constants in N/(m)^2
     if haskey(d, "λ") && haskey(d, "μ")
@@ -41,6 +96,14 @@ end
 get_materialtype(::MaterialDataset{T,MT,MST}) where {T,MT,MST} = MT
 
 
+"""
+````
+function MaterialDataset(MT::MaterialType)
+````
+
+Returns the MaterialDateset for MaterialType MT.
+
+"""
 function MaterialDataset(MT::Type{TestMaterial{x}}) where {x}
     # elastic constants
     ElasticConstants = Dict()
@@ -203,6 +266,11 @@ function MaterialDataset(MT::Type{InGaAs{x}}, MST::Type{<:MaterialStructureType}
 end
 
 
+"""
+    $(TYPEDEF)
+
+structure that collects material data sets, elasticity tensors and piezoelectric tensors for all materials
+"""
 struct MaterialData{T, MST <: MaterialStructureType}
     data::Array{MaterialDataset,1}
     TensorC::Array{<:ElasticityTensorType{T},1}         # elastitity tensor C
