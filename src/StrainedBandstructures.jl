@@ -1,4 +1,4 @@
-module NanoWiresJulia
+module StrainedBandstructures
 
 using ExtendableFEM
 using ExtendableFEMBase
@@ -43,18 +43,21 @@ include("materialstructuretype.jl")
 export MaterialStructureType
 export ZincBlende2D, ZincBlende001, ZincBlende111_C14, ZincBlende111_C15, ZincBlende111_C14_C15, Wurtzite0001
 
-include("tensors.jl")
-export ElasticityTensorType, PiezoElectricityTensorType
-export IsotropicElasticityTensor
-export CustomMatrixElasticityTensor, CustomMatrixPiezoElectricityTensor
-export apply_elasticity_tensor!, apply_piezoelectricity_tensor!
-
 include("materials.jl")
 export MaterialType
 export TestMaterial, GaAs, AlInAs, AlGaAs, InGaAs
-export MaterialDataset
+export MaterialParameters
 export get_materialtype
-export MaterialData
+
+include("tensors.jl")
+export AbstractTensor
+export DenseMatrixTensor, SparseMatrixTensor
+export IsotropicElasticityTensor
+export apply_tensor!
+
+
+include("heterostructures.jl")
+export HeteroStructureData
 export set_data
 
 include("strains.jl")
@@ -67,7 +70,7 @@ export eval_strain!, eval_elastic_strain!
 
 include("pdeoperators.jl")
 export PDEDisplacementOperator, PDEPolarisationOperator
-export get_displacement_operator, get_displacement_operator_new
+export get_displacement_operator, get_displacement_operator
 export get_polarisation_from_strain_operator
 export get_polarisation_laplacian_operator
 export get_polarisation_operator # wip

@@ -1,22 +1,22 @@
 # Tensors
 
-## Elasticity tensors
+## Custom tensors 
 
-These are the avaiable elasticity tensor types...
+Custom tensors are based on a matrix representation that maps one vector to another, e.g. a Voigt representation of the strain to the Voigt representation of the stress. The matrix representation can be defined as a DenseMatrix or a SparseMatrix.
 
 ```@docs
-ElasticityTensorType
-IsotropicElasticityTensor
-CustomMatrixElasticityTensor
+AbstractTensor
+SparseMatrixTensor
+DenseMatrixTensor
 ```
 
+Currently DenseMatrixTensors are used to represent the elasticity and piezoeletricity tensors.
 
-## Piezo-electricity tensors
+## Isotropic Elasticity tensors
 
-
-These are the avaiable piezo-electricity tensor types...
+For linear elasticity, a special constructor for the isotropic elasticity tensor is available:
 
 ```@docs
-PiezoElectricityTensorType
-CustomMatrixPiezoElectricityTensor
+IsotropicElasticityTensor
+IsotropicElasticityTensor(MD::MaterialParameters{T, MT, MST}) where {T,MT,MST}
 ```

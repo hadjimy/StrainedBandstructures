@@ -1,16 +1,17 @@
 # Material Data
 
-## Material data sets
+## MaterialParameters
+
+This structure stores all implemented parameters for a material.
 
 ```@docs
-MaterialDataset
-MaterialData
+MaterialParameters
 ```
 
 ## Material structure types
 
 ```@autodocs
-Modules = [NanoWiresJulia]
+Modules = [StrainedBandstructures]
 Pages = ["materialstructuretype.jl"]
 Order   = [:type, :function]
 ```
@@ -24,3 +25,16 @@ AlInAs
 AlGaAs
 InGaAs
 ```
+
+## HeteroStructureData
+
+A hetero-structure consists of several materials related to the region numbers of the
+grid. The HeteroStructureData is a structure that stores the MaterialParameters
+of all materials/regions and the derived elasticity and piezo-eletricity tensors.
+
+```@autodocs
+Modules = [StrainedBandstructures]
+Pages = ["heterostructures.jl"]
+Order   = [:type, :function]
+```
+

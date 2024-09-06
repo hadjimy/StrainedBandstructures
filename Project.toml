@@ -1,4 +1,4 @@
-name = "NanoWiresJulia"
+name = "StrainedBandstructures"
 uuid = "3e3237d9-63df-4510-8634-5aa762e77746"
 authors = ["Patricio Farrell", "Yiannis Hadjimichael", "Christian Merdon"]
 version = "0.1.0"
@@ -32,10 +32,10 @@ Triangulate = "f7e6ffb2-c36d-4f8f-a77e-16e897189344"
 XLSX = "fdbf4ff8-1666-58a4-91e7-1b58723a45e0"
 
 [compat]
-ExtendableFEM = "^0.5.0"
-ExtendableFEMBase = "^0.6"
-ExtendableGrids = "^1.5.0"
 DocStringExtensions = "0.8,0.9"
+ExtendableFEM = "^0.7"
+ExtendableFEMBase = "^0.7"
+ExtendableGrids = "^1.9.2"
 GridVisualize = "1.1.7"
 Pardiso = "0.5.3"
 SimplexGridFactory = "^2.0.1"

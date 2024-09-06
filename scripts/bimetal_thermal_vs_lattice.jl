@@ -1,6 +1,6 @@
 module bimetal
 
-using NanoWiresJulia
+using StrainedBandstructures
 using GradientRobustMultiPhysics
 using ExtendableGrids
 using SimplexGridFactory

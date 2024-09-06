@@ -1,6 +1,6 @@
 module bimetal
 
-using NanoWiresJulia
+using StrainedBandstructures
 using ExtendableFEM
 using ExtendableGrids
 using SimplexGridFactory
@@ -15,7 +15,7 @@ using ExtendableSparse
 ## postprocess data with postprocess(; Plotter = PyPlot) --> images go to plots directory
 
 # configure Watson
-@quickactivate "NanoWiresJulia" # <- project name
+@quickactivate "StrainedBandstructures" # <- project name
 # set parameters that should be included in filename
 watson_accesses = ["scale", "latmis", "femorder", "full_nonlin", "nrefs", "strainm", "mb", "hz", "grid_type", "bc", "mstruct","stressor_x"]
 watson_allowedtypes = (Real, String, Symbol, Array, DataType)
@@ -126,7 +126,7 @@ function run_single(d = nothing; force::Bool = false, generate_vtk = true, Plott
     elseif d["scenario"] == 2
         materials = [GaAs, AlInAs{d["stressor_x"]}]
         materialstructuretype = d["mstruct"]
-        MD = set_data(materials, materialstructuretype)
+        MD = HeteroStructureData(materials, materialstructuretype)
 
         ## compute lattice_mismatch
         if d["latmis"] == nothing
@@ -285,9 +285,9 @@ function main(d::Dict; Plotter = Plotter, verbosity = 0)
 
     ## add (nonlinear) operators for displacement equation
     if scenario == 1
-        DisplacementOperator = get_displacement_operator_new([IsotropicElasticityTensor(λ[r], μ[r], dim) for r = 1 : nregions], strainm, misfit_strain, α; dim = dim, displacement = u, emb = parameters, regions = 1:nregions, bonus_quadorder = 2*(femorder-1))
+        DisplacementOperator = get_displacement_operator([IsotropicElasticityTensor(λ[r], μ[r], dim) for r = 1 : nregions], strainm, misfit_strain, α; dim = dim, displacement = u, emb = parameters, regions = 1:nregions, bonus_quadorder = 2*(femorder-1))
     elseif scenario == 2
-        DisplacementOperator = get_displacement_operator_new(MD.TensorC, strainm, misfit_strain, α; dim = dim, displacement = u, emb = parameters, regions = 1:nregions, bonus_quadorder = 2*(femorder-1))
+        DisplacementOperator = get_displacement_operator(MD.TensorC, strainm, misfit_strain, α; dim = dim, displacement = u, emb = parameters, regions = 1:nregions, bonus_quadorder = 2*(femorder-1))
     end
     assign_operator!(Problem, DisplacementOperator)
 
@@ -381,7 +381,7 @@ function export_vtk(d = nothing; upscaling = 0, kwargs...)
     filename_vtk = savename(d, ""; allowedtypes = watson_allowedtypes, accesses = watson_accesses)
     @unpack solution, strainm, estrainm, misfit_strain = d
     repair_grid!(solution[1].FES.xgrid)
-    NanoWiresJulia.exportVTK(datadir(watson_datasubdir, filename_vtk), misfit_strain, solution[1], nothing; EST = estrainm, strain_model = strainm, P0strain = true, upscaling = upscaling)
+    StrainedBandstructures.exportVTK(datadir(watson_datasubdir, filename_vtk), misfit_strain, solution[1], nothing; EST = estrainm, strain_model = strainm, P0strain = true, upscaling = upscaling)
 end
 
 function export_cuts(; 
