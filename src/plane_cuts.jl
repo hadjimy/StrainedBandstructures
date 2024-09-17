@@ -528,10 +528,12 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
         nodevals_ϵu2 = zeros(Float64,6,size(nodevals_gradient2,2))
 
         ## compute nodevalues for polarisatin/electri field on subgrids
-        nodevals_P1 = nodevalues(Solution[2], Identity; regions = [1,2], nodes = nodes4level[subnodes1])
-        nodevals_P2 = nodevalues(Solution[2], Identity; regions = [3], nodes = nodes4level[subnodes2])
-        nodevals_E1 = nodevalues(Solution[2], Gradient; regions = [1,2], nodes = nodes4level[subnodes1])
-        nodevals_E2 = nodevalues(Solution[2], Gradient; regions = [3], nodes = nodes4level[subnodes2])
+        if length(Solution) > 1
+            nodevals_P1 = nodevalues(Solution[2], Identity; regions = [1,2], nodes = nodes4level[subnodes1])
+            nodevals_P2 = nodevalues(Solution[2], Identity; regions = [3], nodes = nodes4level[subnodes2])
+            nodevals_E1 = nodevalues(Solution[2], Gradient; regions = [1,2], nodes = nodes4level[subnodes1])
+            nodevals_E2 = nodevalues(Solution[2], Gradient; regions = [3], nodes = nodes4level[subnodes2])
+        end
 
         ## now displace the grid if deform is true
         xCoordinatesCut3D = cut_grid[Coordinates]
@@ -596,6 +598,8 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
         ## write data into csv file
         @info "Exporting cut data for cut_level = $(cut_level)..."
         kwargs = Dict()
+        kwargs1 = Dict()
+        kwargs2 = Dict()
         kwargs[:cellregions] = cut_grid[CellRegions]
         kwargs[:displacement] = nodevals
         kwargs[:grad_displacement] = nodevals_gradient
@@ -604,14 +608,12 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
         if length(Solution) > 1
             kwargs[:polarisation] = nodevals_P
             kwargs[:electric_field] = nodevals_E
+            kwargs1[:electric_field] = nodevals_E1
+            kwargs2[:electric_field] = nodevals_E2
         end
 
-        kwargs1 = Dict()
         kwargs1[:elastic_strain] = nodevals_ϵu1
-        kwargs1[:electric_field] = nodevals_E1
-        kwargs2 = Dict()
         kwargs2[:elastic_strain] = nodevals_ϵu2
-        kwargs2[:electric_field] = nodevals_E2
         ExtendableGrids.writeVTK(target_folder_cut_level * "simple_cut_$(cut_level)_data" * (deform ? "_deformed.vtu" : ".vtu"), cut_grid; kwargs...)
         ExtendableGrids.writeVTK(target_folder_cut_level * "simple_cut_$(cut_level)_data_subgrid1" * (deform ? "_deformed.vtu" : ".vtu"), subgrid1; kwargs1...)
         ExtendableGrids.writeVTK(target_folder_cut_level * "simple_cut_$(cut_level)_data_subgrid2" * (deform ? "_deformed.vtu" : ".vtu"), subgrid2; kwargs2...)
@@ -652,6 +654,7 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
             close(io)
         end
 
+        if length(Solution) > 1
             ## write polarisation potential and eletric field maps into txt files
             @info "Writing polarisation potential file for e$(component_names[c]) on subgrids..."
             filename_P = target_folder_cut_level * "P_subgrid1.dat"
@@ -685,6 +688,7 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
                 end
                 close(io)
             end
+        end
 
         xmin = minimum(view(xCoordinatesCutPlane,a,:))
         xmax = maximum(view(xCoordinatesCutPlane,a,:))
