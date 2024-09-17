@@ -308,6 +308,7 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
     z4Faces = zeros(Float64,nfaces)
     nnodes4face = max_num_targets_per_source(xFaceNodes)
     nnodes = size(xCoordinates,2)
+    component_names = ["XX","YY","ZZ","YZ","XZ","XY"]
 
     z::Float64 = 0
     for face = 1 : nfaces
@@ -580,6 +581,40 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
             end
         end
 
+        ## calculate jumps along interface of core and stressor
+        nodes_at_interface = intersect(subnodes1, subnodes2)
+
+        ## choose coordinate that changes sign (quick and dirty criterion)
+        xinterface = cut_grid[Coordinates][1, nodes_at_interface]
+        label = "jumps along x"
+        if prod(extrema(xinterface)) > 0
+            xinterface = cut_grid[Coordinates][2, nodes_at_interface]
+        label = "jumps along y"
+        end
+
+        ## compute jumps
+        jumps = zeros(Float64, 6, length(nodes_at_interface))
+        for j = 1 : length(nodes_at_interface)
+            n = nodes_at_interface[j]
+            j1 = findfirst(==(n), subnodes1)
+            j2 = findfirst(==(n), subnodes2)
+            jumps[:,j] =  nodevals_ϵu1[:,j1] .- nodevals_ϵu2[:,j2]
+        end
+
+        ## sort jumps w.r.t to coordinates
+        P = sortperm(xinterface)
+        xinterface = xinterface[P]
+        jumps = jumps[:,P]
+
+        ## report
+        for c = 1 : 6
+            @info "minimal/maximal jump at interface in $(component_names[c]) component: $(extrema(jumps[c,:]))"
+        end
+        
+           
+
+
+
         ## get 2D coordinates of the simple grid by applying the rotation R
         cut_grid2D = deepcopy(cut_grid)
         xCoordinatesCutPlane = zeros(Float64,2,nnodes_cut)
@@ -637,7 +672,6 @@ function perform_simple_plane_cuts(target_folder_cut, Solution_original, plane_p
             @printf(io, "%.6f %.6f\n",coords2[1,n],coords2[2,n])
         end
         close(io)
-        component_names = ["XX","YY","ZZ","YZ","XZ","XY"]
         for c = 1 : 6
             @info "Writing elastic strain distribution file for e_elastic$(component_names[c]) on subgrids..."
             filename_eAB = target_folder_cut_level * 'e' * component_names[c] * "_elastic_subgrid1.dat"
