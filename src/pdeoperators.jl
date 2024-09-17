@@ -29,7 +29,7 @@ end
 
     ## multiply strain in result with isotropic stress tensor
     ## and store in input cache (all in Voigt notation)
-    apply_elasticity_tensor!(input, result, op.STT[region]; offset = op.cache_offset)
+    apply_tensor!(input, result, op.STT[region], op.cache_offset)
 
     ## multiply inverse M from left and right
     input[op.cache_offset+1] /= (1. + op.misfit_strain[region][1])*(1. + op.misfit_strain[region][1])
@@ -90,7 +90,7 @@ end
         input[op.cache_offset+1:op.cache_offset+op.dim] .-= op.misfit_strain[item[3]]
 
         # apply piezo-electricity tensor (result = E eps(u))
-        apply_piezoelectricity_tensor!(result, input, op.PET[item[3]]; input_offset = op.cache_offset)
+        apply_tensor!(result, input, op.PET[item[3]], 0, op.cache_offset)
 
         if (false)        
             # construct F = I + grad(u)
@@ -118,8 +118,8 @@ end
 
 
 
-function get_displacement_operator_new(
-    STT::Vector{<:ElasticityTensorType},    # stress tensor ℂ
+function get_displacement_operator(
+    STT::Vector{<:AbstractTensor},    # stress tensor ℂ
     ST::Type{<:StrainType},                 # strain type ϵ (e.g. Nonlinear3D)
     EST::Type{<:PreStrainType},         # elastic strain type ϵ (e.g. MultiplicativeElasticStrain)
     misfit_strain,                          # misfit strain ϵ0 (constant scalar or vector)
@@ -143,67 +143,67 @@ function get_displacement_operator_new(
                 store = false)                                 # activate Newton derivatives (false won't work here)
 end
 
-function get_displacement_operator(
-    STT::ElasticityTensorType,     # stress tensor ℂ
-    ST::Type{<:StrainType},     # strain type ϵ (e.g. Nonlinear3D)
-    misfit_strain,              # misfit strain ϵ0 (constant scalar or vector)
-    α;                          # average values (constant scalar or vector)
-    displacement_id = 1,        # unknown id for displacement
-    dim = 2,                    # dimension
-    emb = [1],                  # embedding coefficients for complicated nonlinear features
-                                # (overwrite with your array to use with embedding solver)
-    regions = [0],              # regions where the operator integrates
-    store = Threads.nthreads() > 1,  # separate storage for operator (allows parallel assembly, but only reasonable if nthreads() > 1)
-    bonus_quadorder = 2)        # quadrature order
+# function get_displacement_operator(
+#     STT::ElasticityTensorType,     # stress tensor ℂ
+#     ST::Type{<:StrainType},     # strain type ϵ (e.g. Nonlinear3D)
+#     misfit_strain,              # misfit strain ϵ0 (constant scalar or vector)
+#     α;                          # average values (constant scalar or vector)
+#     displacement_id = 1,        # unknown id for displacement
+#     dim = 2,                    # dimension
+#     emb = [1],                  # embedding coefficients for complicated nonlinear features
+#                                 # (overwrite with your array to use with embedding solver)
+#     regions = [0],              # regions where the operator integrates
+#     store = Threads.nthreads() > 1,  # separate storage for operator (allows parallel assembly, but only reasonable if nthreads() > 1)
+#     bonus_quadorder = 2)        # quadrature order
 
-    cache_offset::Int = dim^2
-    uncompress_voigt! = (dim == 2) ? uncompress_voigt2D! : uncompress_voigt3D!
-    add_gradu_x_stress! = (dim == 2) ? add_gradu_x_stress2D! : add_gradu_x_stress3D!
+#     cache_offset::Int = dim^2
+#     uncompress_voigt! = (dim == 2) ? uncompress_voigt2D! : uncompress_voigt3D!
+#     add_gradu_x_stress! = (dim == 2) ? add_gradu_x_stress2D! : add_gradu_x_stress3D!
 
-    function nonlinear_operator_kernel!(result, input)
-        ## input = [∇u] written as a vector of length dim^2
-        ## result = (1 + ∇u) ℂ ϵ(u) / (1 + α) written as a vector of length dim^2 (to be multiplied by ∇v)
+#     function nonlinear_operator_kernel!(result, input)
+#         ## input = [∇u] written as a vector of length dim^2
+#         ## result = (1 + ∇u) ℂ ϵ(u) / (1 + α) written as a vector of length dim^2 (to be multiplied by ∇v)
 
-        ## evaluate strain into result (Voigt notation)
-        eval_strain!(result, input, ST)
+#         ## evaluate strain into result (Voigt notation)
+#         eval_strain!(result, input, ST)
 
-        ## subtract misfit strain
-        @views result[1:dim] .-= misfit_strain
+#         ## subtract misfit strain
+#         @views result[1:dim] .-= misfit_strain
 
-        ## multiply strain in result with isotropic stress tensor
-        ## and store in input cache (all in Voigt notation)
-        apply_elasticity_tensor!(input, result, STT; offset = cache_offset)
+#         ## multiply strain in result with isotropic stress tensor
+#         ## and store in input cache (all in Voigt notation)
+#         apply_elasticity_tensor!(input, result, STT; offset = cache_offset)
 
-        ## uncompress stress in Voigt notation (input) into full matrix (result)
-        uncompress_voigt!(result, input; offset = cache_offset)
+#         ## uncompress stress in Voigt notation (input) into full matrix (result)
+#         uncompress_voigt!(result, input; offset = cache_offset)
 
-        if emb[1] > 0.
-            # add emb[1]*grad(u)*sigma(u) (in case of complicated model)
-            add_gradu_x_stress!(result, input; factor = emb[1], offset = cache_offset)
-        end
+#         if emb[1] > 0.
+#             # add emb[1]*grad(u)*sigma(u) (in case of complicated model)
+#             add_gradu_x_stress!(result, input; factor = emb[1], offset = cache_offset)
+#         end
 
-        ## multiply by -1/(1 + α) * I
-        result .*= -1 ./ (1 .+ α)
+#         ## multiply by -1/(1 + α) * I
+#         result .*= -1 ./ (1 .+ α)
 
-        return nothing
-    end
-    return NonlinearForm(Gradient,                                      # operator for test function
-                         [Gradient],                                    # operators for ansatz function
-                         [displacement_id],                             # unknown_ids for ansatz function
-                         nonlinear_operator_kernel!,                    # kernel function (above)
-                         [dim^2, dim^2, Int(dim^2+dim*(dim+1)/2)];      # argument sizes for kernel function result and input and cache
-                         name = "(I + emb*∇u)C(ϵ(u)-ϵ0) : ∇v) $(store ? "[stored]" : "")",         # name for print-outs
-                         regions = regions,                             # regions where nonlinearform intergrates
-                         bonus_quadorder = bonus_quadorder,             # quadrature order
-                         store = store,
-                         newton = true)                                 # activate Newton derivatives (false won't work here)
-end
+#         return nothing
+#     end
+#     return NonlinearForm(Gradient,                                      # operator for test function
+#                          [Gradient],                                    # operators for ansatz function
+#                          [displacement_id],                             # unknown_ids for ansatz function
+#                          nonlinear_operator_kernel!,                    # kernel function (above)
+#                          [dim^2, dim^2, Int(dim^2+dim*(dim+1)/2)];      # argument sizes for kernel function result and input and cache
+#                          name = "(I + emb*∇u)C(ϵ(u)-ϵ0) : ∇v) $(store ? "[stored]" : "")",         # name for print-outs
+#                          regions = regions,                             # regions where nonlinearform intergrates
+#                          bonus_quadorder = bonus_quadorder,             # quadrature order
+#                          store = store,
+#                          newton = true)                                 # activate Newton derivatives (false won't work here)
+# end
 
 ## assembles bilinearform (for the displacement off-diagonal block of the polarisation equation)
 ##      (𝔼(ϵ(u) - ϵ0), ∇W_P)
 ## where F = I + grad(u)
 function get_polarisation_from_strain_operator(
-    PET::PiezoElectricityTensorType,    # piezo electricity tensor 𝔼
+    PET::AbstractTensor,    # piezo electricity tensor 𝔼
     ST::Type{<:StrainType},             # strain type ϵ (e.g. Nonlinear3D)
     misfit_strain;                      # misfit strain ϵ0 (constant scalar or vector)
     dim = 2,                            # dimension
@@ -224,7 +224,7 @@ function get_polarisation_from_strain_operator(
         strain .-= misfit_strain
 
         # apply piezo-electricity tensor
-        apply_piezoelectricity_tensor!(result, strain, PET)
+        apply_tensor!(result, strain, PET)
 
         return nothing
     end
@@ -289,7 +289,7 @@ end
    # wish: would be nice to generate PDE operators by autodiff from given energy
 =#
 function get_energy_integrator(
-    STT::Array{<:ElasticityTensorType,1},      # stress tensor ℂ
+    STT::Array{<:AbstractTensor,1},      # stress tensor ℂ
     ST::Type{<:StrainType},     # strain type (e.g. Nonlinear3D)
     α;                          # average values (constant scalar or vector)
     dim = 2,                    # dimension
@@ -316,7 +316,7 @@ function get_energy_integrator(
 
         ## multiply with isotropic stress tensor
         fill!(temp2,0)
-        apply_elasticity_tensor!(temp2, temp, STT[region])
+        apply_tensor!(temp2, temp, STT[region])
 
         ## compute energy
         result[1] = 0
@@ -339,7 +339,7 @@ end
 ## constructor for NonlinearForm for polarisation equation
 ## (very slow, better use the linear ones above)
 function get_polarisation_operator(
-    PET::PiezoElectricityTensorType,      # piezo electricity tensor 𝔼
+    PET::AbstractTensor,      # piezo electricity tensor 𝔼
     ST::Type{<:StrainType},     # strain type ϵ (e.g. Nonlinear3D)
     misfit_strain;              # misfit strain ϵ0 (constant scalar or vector)
     displacement_id = 1,        # unknown id for displacement u
@@ -366,7 +366,7 @@ function get_polarisation_operator(
         input[cache_offset+1:cache_offset+dim] .-= misfit_strain
 
         # apply piezo-electricity tensor
-        apply_piezoelectricity_tensor!(result, input, PET; input_offset = cache_offset)
+        apply_tensor!(result, input, PET, 0, cache_offset)
 
 
         # TODO : repair this such that it works for DualNumbers

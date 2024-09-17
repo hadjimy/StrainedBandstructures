@@ -41,14 +41,14 @@ function ∂FW!(M, invM, detM, STT, PET = nothing, kappar = nothing)
         compute_strain!(_ϵ, _F)
 
         # apply elasticity tensor Cϵ = C : ϵ
-        apply_elasticity_tensor!(_Cϵ, _ϵ, STT[region])
+        apply_tensor!(_Cϵ, _ϵ, STT[region])
 
         # compute energy
         result[1] = dot(_Cϵ, _ϵ) / 2
 
         if polarisation
             ## apply piezo-eletricity tensor Eϵ = E : ϵ
-            apply_piezoelectricity_tensor!(_Eϵ, _ϵ, PET[region])
+            apply_tensor!(_Eϵ, _ϵ, PET[region])
 
             ## add to energy
             result[1] -= dot(_Eϵ, _E)

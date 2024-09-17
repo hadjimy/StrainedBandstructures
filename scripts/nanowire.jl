@@ -1,6 +1,6 @@
 module nanowire
 
-using NanoWiresJulia
+using StrainedBandstructures
 using ExtendableFEM
 using ExtendableFEMBase
 using ExtendableGrids
@@ -20,7 +20,7 @@ using Pardiso
 ## postprocess data with postprocess(; Plotter = PyPlot) --> images go to plots directory
 
 # configure Watson
-@quickactivate "NanoWiresJulia" # <- project name
+@quickactivate "StrainedBandstructures" # <- project name
 # set parameters that should be included in filename
 watson_accesses = ["geometry", "nrefs", "femorder", "mstruct", "stressor_x", "full_nonlin", "interface_refinement", "cross_section", "rotate"]
 watson_allowedtypes = (Real, String, Symbol, Array, DataType)
@@ -87,7 +87,7 @@ function get_scenario(scenario, shell_x, stressor_x, materialstructuretype)
     else
         @error "scenario not defined"
     end
-    MD = set_data(materials, materialstructuretype)
+    MD = HeteroStructureData(materials, materialstructuretype)
     return MD
 end
 
@@ -228,7 +228,7 @@ function main(d = nothing; verbosity = 0, Plotter = nothing, force::Bool = false
     if (use_lowlevel_solver)
         @assert polarisation == false
         BoundaryOperator = HomogeneousBoundaryData(1; regions = regions_bc)
-        DisplacementOperator = get_displacement_operator_new(MD.TensorC, strainm, estrainm, eps0, a; dim = 3, displacement = u, emb = parameters, regions = 1:nregions, bonus_quadorder = bonus_quadorder)
+        DisplacementOperator = get_displacement_operator(MD.TensorC, strainm, estrainm, eps0, a; dim = 3, displacement = u, emb = parameters, regions = 1:nregions, bonus_quadorder = bonus_quadorder)
         PolarisationOperator = nothing
         Solution, last_residual = solve_lowlevel(xgrid,
                                 BoundaryOperator,
@@ -303,7 +303,7 @@ function main(d = nothing; verbosity = 0, Plotter = nothing, force::Bool = false
 end
 
 
-function get_lattice_misfit_nanowire(lcavg_case, MD::MaterialData, geometry, full_nonlin)
+function get_lattice_misfit_nanowire(lcavg_case, MD::HeteroStructureData, geometry, full_nonlin)
 
     nregions = length(MD.data)
     lc_avg::Array{Float64,1} = zeros(Float64,3)
