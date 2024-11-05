@@ -195,25 +195,27 @@ function solve_lowlevel(
         end
 
         ## apply penalties for boundary condition
-        assemble!(boundary_operator, FES[1])
-        bdofs = fixed_dofs(boundary_operator)
-
-        for dof in bdofs
-            SE[dof,dof] = fixed_penalty
-            rhs.entries[dof] = 0
-            Solution.entries[dof] = 0
-        end
-
-        ## apply changes for periodic boundary
-        if periodic_boundary_operator !== nothing
-            build_assembler!(periodic_boundary_operator, [Solution[1]])
-            periodic_boundary_operator.assembler(SE, rhs.entries, true, true)
-            bdofs = fixed_dofs(periodic_boundary_operator)
+        if boundary_operator !== nothing
+            assemble!(boundary_operator, FES[1])
+            bdofs = fixed_dofs(boundary_operator)
             for dof in bdofs
                 SE[dof,dof] = fixed_penalty
                 rhs.entries[dof] = 0
                 Solution.entries[dof] = 0
             end
+        end
+
+
+        ## apply changes for periodic boundary
+        if periodic_boundary_operator !== nothing
+            ExtendableFEM.build_assembler!(periodic_boundary_operator, [Solution[1], Solution[1]])
+            periodic_boundary_operator.assembler(SE, rhs.entries, true, true)
+            #bdofs = fixed_dofs(periodic_boundary_operator)
+            #for dof in bdofs
+            #    SE[dof,dof] = fixed_penalty
+            #    rhs.entries[dof] = 0
+            #    Solution.entries[dof] = 0
+            #end
         end
 
         flush!(SE)
@@ -348,7 +350,9 @@ function solve_lowlevel(
                 mul!(residual, SE, view(Solution[1]))
             end
             residual .-= rhs.entries
-            view(residual, bdofs) .= 0
+            if boundary_operator !== nothing
+                view(residual, bdofs) .= 0
+            end
 
             nlres = norm(residual)
             @info "         ---> nonlinear iteration $iteration, linres = $linres, nlres = $nlres, timeASSEMBLY + timeSOLVE = $time_assembly + $time_solver"
@@ -377,7 +381,9 @@ function solve_lowlevel(
                 mul!(residual, SE, view(Solution[1]))
             end
             residual .-= rhs.entries
-            view(residual, bdofs) .= 0
+            if boundary_operator !== nothing
+                view(residual, bdofs) .= 0
+            end
             linres = norm(residual)
 
             if damping > 0
