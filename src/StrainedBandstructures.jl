@@ -41,11 +41,11 @@ export nanowire_grid, nanowire_tensorgrid, nanowire_tensorgrid_mirror
 
 include("materialstructuretype.jl")
 export MaterialStructureType
-export ZincBlende2D, ZincBlende001, ZincBlende111_C14, ZincBlende111_C15, ZincBlende111_C14_C15, Wurtzite0001
+export ZincBlende2D, ZincBlende001, ZincBlende111_C14, ZincBlende111_C15, ZincBlende111_C14_C15, Wurtzite0001, Wurtzite
 
 include("materials.jl")
 export MaterialType
-export TestMaterial, GaAs, AlInAs, AlGaAs, InGaAs
+export TestMaterial, GaAs, AlInAs, AlGaAs, InGaAs, GaN, InGaN
 export MaterialParameters
 export get_materialtype
 
