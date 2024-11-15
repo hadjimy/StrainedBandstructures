@@ -41,7 +41,7 @@ function run_watson(; dim = 2, force::Bool = false, generate_vtk = true)
         "nrefs" => [1],                                                                     # number of uniform refinements before solve
         "avgc" => [2],                                                                      # lattice number calculation method (average case)
         "linsolver" => ExtendableSparse.MKLPardisoLU,                                       # linear solver (try ExtendableSparse.MKLPardisoLU or ExtendableSparse.LUFactorization)
-        "grid_type" => "default",                                                           # grid options: default, condensator, condensator_tensorgrid
+        "grid_type" => "condensator_tensorgrid",                                                           # grid options: default, condensator, condensator_tensorgrid
         "bc" => "robin",                                                                    # boundary conditions: robin (Dirichlet and/or Newmann), periodic
     )
 
@@ -61,7 +61,7 @@ function get_defaults()
         "latmis" => 0.05,                               # lattice mismatch between lattice constants of material A and B (lc = [5,5*(1+latmis)])
         "E" => [1e-6, 1e-6],                            # elastic moduli of material A and B
         "ν" => [0.15, 0.15],                            # Poisson numbers of material A and B
-        "scale" => [50,2000],                           # dimensions of bimetal
+        "scale" => [50,50, 2000],                           # dimensions of bimetal
         "full_nonlin" => true,                          # use complicated model (ignored if linear strain is used)
         "use_emb" => true,                              # use embedding (true) or damping (false) solver ?
         "nsteps" => 4,                                  # number of embedding steps in embedding solver
@@ -74,7 +74,7 @@ function get_defaults()
         "nrefs" => 1,                                   # number of uniform refinements before solve
         "avgc" => 2,                                    # lattice number calculation method (average case)
         "linsolver" => ExtendableSparse.MKLPardisoLU,   # linear solver (try ExtendableSparse.MKLPardisoLU or ExtendableSparse.LUFactorization)
-        "grid_type" => "default",                       # grid options: default, condensator, condensator_tensorgrid
+        "grid_type" => "condensator_tensorgrid",                       # grid options: default, condensator, condensator_tensorgrid
         "bc" => "robin",                                # boundary conditions: robin (Dirichlet and/or Newmann), periodic
         "scenario" => 1,                                # scenario number that fixes materials for core/stressor (1: default, no specific material, 2: semiconductor materials)
         "stressor_x" => 0.5,                            # x value for x-dependent stressor material
@@ -267,7 +267,7 @@ function main(d::Dict; Plotter = Plotter, verbosity = 0)
         @warn "changing strainm to $strainm due to non-matching dimension"
         strainm = NonlinearStrain2D
         d["strainm"] = strainm
-    elseif strinam <: LinearStrain3D && dim == 2
+    elseif strainm <: LinearStrain3D && dim == 2
         @warn "changing strainm to $strainm due to non-matching dimension"
         strainm = LinearStrain2D
         d["strainm"] = strainm
@@ -285,31 +285,14 @@ function main(d::Dict; Plotter = Plotter, verbosity = 0)
 
     ## add (nonlinear) operators for displacement equation
     if scenario == 1
-        DisplacementOperator = get_displacement_operator([IsotropicElasticityTensor(λ[r], μ[r], dim) for r = 1 : nregions], strainm, misfit_strain, α; dim = dim, displacement = u, emb = parameters, regions = 1:nregions, bonus_quadorder = 2*(femorder-1))
+        DisplacementOperator = get_displacement_operator([IsotropicElasticityTensor(λ[r], μ[r], dim) for r = 1 : nregions], strainm, IsotropicPrestrain, misfit_strain, α; dim = dim, displacement = u, emb = parameters, regions = 1:nregions, bonus_quadorder = 2*(femorder-1))
     elseif scenario == 2
-        DisplacementOperator = get_displacement_operator(MD.TensorC, strainm, misfit_strain, α; dim = dim, displacement = u, emb = parameters, regions = 1:nregions, bonus_quadorder = 2*(femorder-1))
+        DisplacementOperator = get_displacement_operator(MD.TensorC, strainm, IsotropicPrestrain, misfit_strain, α; dim = 3, displacement = u, emb = parameters, regions = 1:nregions, bonus_quadorder = bonus_quadorder)
+        #DisplacementOperator = get_displacement_operator(MD.TensorC, strainm, IsotropicPrestrain, misfit_strain, α; dim = dim, displacement = u, emb = parameters, regions = 1:nregions, bonus_quadorder = 2*(femorder-1))
     end
+        
     assign_operator!(Problem, DisplacementOperator)
 
-    ## add Dirichlet boundary data on front
-
-    if bc != "periodic"
-        if length(dirichlet_regions) > 0
-            BoundaryOperator = HomogeneousBoundaryData(u; regions = dirichlet_regions)
-            assign_operator!(Problem, BoundaryOperator)
-        end
-    elseif bc == "periodic"
-        @error "periodic boundary conditions not working yet"
-        #     ## add coupling information for periodic regions
-        #     for j = 1 : length(periodic_regions)
-        #         dofsX, dofsY = get_periodic_coupling_info(FES[1], xgrid, periodic_regions[j][1], periodic_regions[j][2], periodic_regions[j][3]; factor_components = periodic_regions[j][4])
-        #         add_constraint!(Problem, CombineDofs(1, 1, dofsX, dofsY))
-        #     end
-   end
-
-    ##############
-    ### SOLVER ###
-    ##############
 
     ## choose finite element type for displacement (vector-valued) and polarisation (scalar-valued)
     if femorder == 1
@@ -322,6 +305,33 @@ function main(d::Dict; Plotter = Plotter, verbosity = 0)
         FEType_D = H1P3{dim,dim}
         FEType_P = H1P3{1,dim}
     end
+
+    ## add Dirichlet boundary data on front
+    BoundaryOperator = nothing
+    PeriodicBoundaryOperator = nothing
+    if bc != "periodic"
+        if length(dirichlet_regions) > 0
+            BoundaryOperator = HomogeneousBoundaryData(u; regions = dirichlet_regions)
+            assign_operator!(Problem, BoundaryOperator)
+        end
+    elseif bc == "periodic"
+        ## add coupling information for periodic regions
+        FES = FESpace{FEType_D}(xgrid)
+        dofsX, dofsY, factors = Int[], Int[], Int[]
+        for j = 1 : length(periodic_regions)
+            dofsX_j, dofsY_j, factors_j = get_periodic_coupling_info(FES, xgrid, periodic_regions[j][1], periodic_regions[j][2], periodic_regions[j][3]; factor_components = periodic_regions[j][4])
+            append!(dofsX, dofsX_j)
+            append!(dofsY, dofsY_j)
+            append!(factors, factors_j)
+        end
+        PeriodicBoundaryOperator = CombineDofs(1, 1, dofsX, dofsY, factors)
+        assign_operator!(Problem, PeriodicBoundaryOperator)
+   end
+
+    ##############
+    ### SOLVER ###
+    ##############
+
     polarisation = false
     PolarisationOperator = nothing
 
@@ -330,6 +340,7 @@ function main(d::Dict; Plotter = Plotter, verbosity = 0)
                                 DisplacementOperator.kernel,
                                 PolarisationOperator,
                                 parameters;
+                                periodic_boundary_operator = PeriodicBoundaryOperator,
                                 linsolver = linsolver,
                                 nsteps = [nsteps, 1],
                                 FETypes = [FEType_D, FEType_P],
